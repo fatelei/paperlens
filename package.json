@@ -1,0 +1,12 @@
+{
+  "name": "ocrdesk",
+  "version": "0.5.7",
+  "description": "PaperLens desktop OCR and verification workspace",
+  "scripts": {
+    "test": "node --test tests/state.test.mjs tests/proofread.test.mjs tests/correction.test.mjs tests/review-history.test.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module"
+}

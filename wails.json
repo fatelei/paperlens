@@ -1,0 +1,10 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "PaperLens",
+  "outputfilename": "PaperLens",
+  "frontend:install": "",
+  "frontend:build": "",
+  "frontend:dev:watcher": "",
+  "author": {"name": "PaperLens", "email": ""},
+  "info": {"companyName": "PaperLens", "productName": "PaperLens", "productVersion": "0.5.7", "copyright": "PaperLens", "comments": "Local document OCR with optional Jev verification"}
+}

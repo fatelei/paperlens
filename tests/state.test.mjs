@@ -1,0 +1,16 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {changeText,scoreLabel,exportDocument,normalizedBox} from '../frontend/dist/state.mjs';
+test('editing a verified result invalidates both model score and human review',()=>{const r={text:'128',score:.99,verdict:'scored',reviewed:true,revision:1};assert.equal(changeText(r,'123'),true);assert.equal(r.score,null);assert.equal(r.verdict,'unverified');assert.equal(r.reviewed,false);assert.equal(r.revision,2)});
+test('unchanged text retains score',()=>{const r={text:'128',score:.99};assert.equal(changeText(r,'128'),false);assert.equal(r.score,.99)});
+test('failed scores never become confidence labels',()=>{for(const verdict of ['render_error','encode_error','request_error'])assert.equal(scoreLabel({verdict,score:0},.9).kind,'error');assert.equal(scoreLabel({verdict:'scored',score:NaN},.9).kind,'error')});
+test('zero is a valid scored result, and threshold equality passes',()=>{assert.equal(scoreLabel({verdict:'scored',score:0},.9).kind,'warning');assert.equal(scoreLabel({verdict:'scored',score:.9},.9).kind,'good')});
+test('JSON exports include region provenance and no source image',()=>{const d={name:'合同.pdf',pages:[{width:500,height:600,image:'SECRET_IMAGE',regions:[{id:'r',text:'总计 128',category:'text',bbox:[0,0,500,600],score:.95,verdict:'scored',model:'minicpm-ocr'}]}]};const out=JSON.parse(exportDocument(d,'json'));assert.equal(out.pages[0].regions[0].score,.95);assert.deepEqual(out.pages[0].regions[0].bbox,[0,0,500,600]);assert.equal(JSON.stringify(out).includes('SECRET_IMAGE'),false)});
+test('crop text is explicitly separated rather than silently duplicated into full text',()=>{const d={pages:[{regions:[{text:'正文'},{text:'修改摘录'}]}]};assert.match(exportDocument(d,'txt'),/正文\n\n区域摘录 1（独立内容，未自动替换全文）\n修改摘录/)});
+test('crop coordinates are clamped and support reverse dragging',()=>{assert.deepEqual(normalizedBox({x:120,y:90},{x:-10,y:20},100,80),[0,20,100,80])});
+
+ test('legacy cloud scores do not appear as local model scores',async()=>{const {migrateLocalScores}=await import('../frontend/dist/state.mjs');const r={text:'keep',verdict:'scored',score:.99,reviewed:true};migrateLocalScores([{pages:[{regions:[r]}]}]);assert.equal(r.text,'keep');assert.equal(r.reviewed,true);assert.equal(r.score,null);assert.equal(r.verdict,'unverified')});
+
+ test('review queue respects human review and catches failed or missing scores',async()=>{const {reviewIssues}=await import('../frontend/dist/state.mjs');const doc={pages:[{regions:[{text:'a',score:.2,verdict:'scored'},{text:'b',verdict:'request_error'},{text:'c',verdict:'unverified',reviewed:true},{text:''}]},{regions:[{text:'d',score:.95,verdict:'scored'}]}]};assert.deepEqual(reviewIssues(doc),[{page:0,region:0},{page:0,region:1}]);});
+
+test('automatic segments merge once and aggregate never counts as an issue',async()=>{const {mergeSegments,reviewIssues}=await import('../frontend/dist/state.mjs');const page={regions:[{aggregate:true,text:'old'},{auto:true,text:'left',verdict:'scored',score:.95},{auto:true,text:'right',verdict:'scored',score:.1}]};mergeSegments(page);assert.equal(exportDocument({pages:[page]},'txt'),'left\n\nright');assert.deepEqual(reviewIssues({pages:[page]}),[{page:0,region:2}]);});

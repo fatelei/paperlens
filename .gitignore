@@ -1,0 +1,14 @@
+/build/
+/node_modules/
+.DS_Store
+*.log
+/models/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.*
+settings.json
+*.gguf
+*.safetensors
