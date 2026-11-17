@@ -1,3 +1,4 @@
+import {applyContinuations} from './continuations.mjs';
 import {acceptedCorrection,effectiveResult,validScore} from './correction.mjs';
 // PDF-backed proofreading is separate from OCR. Scores always belong to raw OCR.
 export function proofSignature(page){return JSON.stringify(page.regions.map(r=>[r.id,r.text,r.revision,r.category,r.reviewed,r.bbox,r.score,r.verdict,r.correction,r.error,r.manualEdited,r.reviewReopened,r.detailAudit]).concat([page.scanAudit,page.correctionThreshold]))}
@@ -58,10 +59,11 @@ export function proofreadPage(page){
  return page.proof={status:unresolved?'partial':'ready',reason:unresolved?`${unresolved} 个区域没有对应 PDF 文字，保留原 OCR 待复核。`:'依据 PDF 文字层自动校对，未覆盖原始 OCR 或沿用其评分。',source:'pdf-text-layer',signature,text:ordered.map(p=>p.text).join('\n\n'),changes,unresolved,parts:ordered};
 }
 export function currentProof(page){if(!page.proof||(page.proof.source==='local-retry'&&page.proof.strategyVersion!==2)||page.proof.signature!==proofSignature(page))return proofreadPage(page);return page.proof}
+export function documentProof(doc){return applyContinuations(doc,doc.pages.map((p,i)=>({page:i+1,...currentProof(p)})),Math.max(.9,...doc.pages.map(p=>p.correctionThreshold??.9)));}
 export function exportProof(doc,format){
- const pages=doc.pages.map((p,i)=>({page:i+1,...currentProof(p)}));
+ const pages=documentProof(doc);
  if(pages.some(p=>p.status==='unavailable'))throw new Error('部分页面无法自动校对。请补充原 PDF 或完成识别；也可切换为原始 OCR 导出。');
- if(format==='json')return JSON.stringify({schema:'paperlens-proof/1',name:doc.name,pages},null,2);
+ if(format==='json')return JSON.stringify({schema:'paperlens-proof/1',name:doc.name,pages,continuationAudits:doc.continuationAudits||[]},null,2);
  return pages.map(p=>`${format==='md'?'## ':'—— '}第 ${p.page} 页${format==='md'?'':' ——'}\n${p.status==='partial'?'[部分区域未自动校对，保留 OCR]\n':''}\n${p.text}`).join('\n\n');
 }
 export async function extractReference(pdfPage,viewport,pdfjs){

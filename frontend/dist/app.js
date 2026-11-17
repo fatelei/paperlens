@@ -1,12 +1,14 @@
-import {verificationCandidate,sameText,lineContexts,contextPasses,textAuditAllowed,verifiedCodeText} from './context-verification.mjs';
+import {continuationCandidate,acceptedContinuation,checkedRequest} from './continuations.mjs';
+import {verificationCandidate,normalizeVerificationImage,sameText,lineContexts,contextPasses,textAuditAllowed,verifiedCodeText} from './context-verification.mjs';
 import {wordEvidence,joinCandidates,detailBoxes,isCode,sameCode,detailRequired,detailVersion,patchVerifiedDetails,verifiedLineJoin,joinReread,sqlPunctuationCandidates,patchVerifiedScales,numericTickBoxes,numericEvidenceResult} from './detail-correction.mjs';
 import {recordReview,lastReview,undoLastReview} from './review-history.mjs';
 import {splitRaster} from './segments.mjs';
 import {correctRegion,uncoveredRegions,acceptedCorrection,auditDetails,detailPending,regionKey} from './correction.mjs';
-import {extractReference,currentProof,exportProof} from './proofread.mjs';
+import {extractReference,currentProof as pageProof,documentProof,readingOrder,exportProof} from './proofread.mjs';
 import {changeText,invalidate,scoreLabel,exportDocument,normalizedBox,migrateLocalScores,reviewIssues,needsReview,mergeSegments} from './state.mjs';
 const $=id=>document.getElementById(id);
 const state={docs:[],docId:null,page:0,region:0,settings:{threshold:.9},busy:false,importing:false,verifying:false,cancelled:false,cropping:false,zoom:1,db:null};
+function currentProof(page){const doc=state.docs.find(d=>d.pages.includes(page));return doc?documentProof(doc)[doc.pages.indexOf(page)]:pageProof(page);}
 const native=()=>window.go?.main?.App;
 const call=(name,...args)=>{if(!native())return Promise.reject(new Error('请在 PaperLens 桌面应用中使用此功能'));return native()[name](...args)};
 let toastTimer,saveTimer;
@@ -77,8 +79,8 @@ function renderResult(){
  const proofMode=$('output-version').value==='proof',proof=proofMode?currentProof(page):null;const shown=proofMode&&proof.status!=='unavailable'?(region.aggregate||region===page.regions[0]?proof.text:proof.parts?.find(p=>p.regionId===region.id)?.text??region.text):region.text;
  $('result-title').textContent=proofMode?'校对结果':'原始 OCR';$('editor-label').textContent=proofMode?'校对后的文字，只读':'识别文字，可直接编辑';$('editor').setAttribute('aria-label',proofMode?'校对后的文字，只读':'原始识别文字，可编辑');$('editor').value=shown;$('category').value=region.category;$('char-count').textContent=`${shown.length} 字符`;$('edit-state').textContent=proofMode?(proof.status==='unavailable'?'校对尚未完成 · 暂示原始 OCR':'校对版 · 切换原始 OCR 可编辑'):region.aggregate?'按阅读顺序合并 · 点击段落可编辑':region.reviewed?'已人工确认':region.originalText&&region.text!==region.originalText?'已修改 · 需重新核验':'可直接编辑';
  $('delete-region').hidden=proofMode||state.region===0;$('recognize').textContent=region.text?'重新识别':'开始识别';
- const corrected=proofMode?acceptedCorrection(region):null;const badge=detailPending(region)&&!region.manualEdited&&!region.reviewed?{label:'细节待复核',kind:'warning'}:corrected?{label:`${corrected.score.toFixed(3)} · ${corrected.partial?'部分细节已修正，仍待复核':corrected.parts?'分块最低分':'校对版已核验'}`,kind:corrected.partial?'warning':'good'}:region.aggregate?{label:'逐段核验',kind:''}:state.verifyingRegion===region&&state.verifyingRevision===region.revision?{label:'核验中…',kind:''}:scoreLabel(region,state.settings.threshold??.9);$('score-badge').textContent=badge.label;$('score-badge').className='badge '+badge.kind;
- $('score-detail').textContent=detailPending(region)&&!region.manualEdited&&!region.reviewed?(region.detailAudit.reason||'细节复读存在不一致，保留文字等待人工确认。'):corrected?(proofMode?'当前显示校对文字；点击「查看校对版」可查看修改前后对照。':'当前显示原始 OCR；切换校对版可查看修正文字。'):(region.aggregate?'全文按分区顺序合并；请选择段落查看独立评分。':'')||region.error||region.detail||(region.reviewed?'当前内容已由你标记为人工复核完成。':region.verdict==='scored'?'评分来自 Jev；请结合原图确认关键数字与文字。':region.category==='page'?'识别后自动核验。整页按文字一致性评分；表格、公式可框选后单独核验。':'核验在本机完成，图片与文字不会上传。');
+ const continuation=proofMode?proof.parts?.find(p=>p.regionId===region.id)?.continuation:null;const corrected=proofMode?acceptedCorrection(region):null;const badge=continuation?{label:'断词局部核验通过',kind:needsReview(region,state.settings.threshold??.9)?'warning':'good'}:detailPending(region)&&!region.manualEdited&&!region.reviewed?{label:'细节待复核',kind:'warning'}:corrected?{label:`${corrected.score.toFixed(3)} · ${corrected.partial?'部分细节已修正，仍待复核':corrected.parts?'分块最低分':'校对版已核验'}`,kind:corrected.partial?'warning':'good'}:region.aggregate?{label:'逐段核验',kind:''}:state.verifyingRegion===region&&state.verifyingRevision===region.revision?{label:'核验中…',kind:''}:scoreLabel(region,state.settings.threshold??.9);$('score-badge').textContent=badge.label;$('score-badge').className='badge '+badge.kind;
+ $('score-detail').textContent=continuation?`跨栏/跨页合词 ${continuation.word} 已通过两端图像核验；只验证该断词，不沿用原段分数。原有待复核状态保留，任一端人工修改后取消拼接。`:detailPending(region)&&!region.manualEdited&&!region.reviewed?(region.detailAudit.reason||'细节复读存在不一致，保留文字等待人工确认。'):corrected?(proofMode?'当前显示校对文字；点击「查看校对版」可查看修改前后对照。':'当前显示原始 OCR；切换校对版可查看修正文字。'):(region.aggregate?'全文按分区顺序合并；请选择段落查看独立评分。':'')||region.error||region.detail||(region.reviewed?'当前内容已由你标记为人工复核完成。':region.verdict==='scored'?'评分来自 Jev；请结合原图确认关键数字与文字。':region.category==='page'?'识别后自动核验。整页按文字一致性评分；表格、公式可框选后单独核验。':'核验在本机完成，图片与文字不会上传。');
  $('verify').disabled=proofMode||state.busy||region.aggregate||!region.text.trim();$('review').disabled=navigationLocked()||!region.text.trim();$('copy-current').disabled=!shown.trim()||(region.aggregate&&!page.regions.some(r=>!r.aggregate&&r.text.trim()));$('copy-current').title=shown.trim()?'复制当前显示的文字':'当前区域没有文字，请先识别';$('editor').disabled=navigationLocked();$('editor').readOnly=proofMode||navigationLocked()||!!region.aggregate;$('category').disabled=proofMode||navigationLocked()||!!region.aggregate;$('review').disabled=proofMode||navigationLocked()||!!region.aggregate||!region.text.trim();renderReviewActions();
 }
 function renderOverlays(){
@@ -267,7 +269,7 @@ async function setupTask(method,...args){
 }
 bind('download-models',()=>setupTask('DownloadModels',$('download-source').value));bind('install-engine',()=>setupTask('InstallEngine'));
 bind('clear-data',async()=>{if(state.busy)return;if(!await confirmAction('清空本机文档库？','所有导入文档与未导出的编辑结果都会被删除。模型文件和设置保留。'))return;clearTimeout(saveTimer);if(state.db)await new Promise((resolve,reject)=>{const tx=state.db.transaction('documents','readwrite');tx.objectStore('documents').clear();tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});state.docs=[];state.docId=null;$('settings').close();render();toast('文档库已清空')});
-bind('sample',async()=>{const canvas=document.createElement('canvas');canvas.width=1200;canvas.height=1600;const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,1200,1600);ctx.fillStyle='#213d33';ctx.font='42px serif';ctx.fillText('PaperLens 文档识别测试',100,150);ctx.font='25px sans-serif';['这是一份内置样本文档，用于测试本地 OCR。','你可以识别整页，也可以框选下面的文字区域。','','项目名称：文档数字化工具','版本：0.5.10','日期：2026 年 11 月 16 日','','识别后可以编辑文字、复制内容或导出文件。','核验由本机 MiniCPM-OCR-Jev 独立模型完成。','','English recognition sample:','Make every document editable.','Total: 128.00 CNY'].forEach((line,i)=>ctx.fillText(line,100,270+i*65));const doc={id:id(),name:'内置测试文档.png',createdAt:Date.now(),pages:[pageFromCanvas(canvas)]};state.docs.push(doc);state.docId=doc.id;state.page=0;state.region=0;persist();render()});
+bind('sample',async()=>{const canvas=document.createElement('canvas');canvas.width=1200;canvas.height=1600;const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,1200,1600);ctx.fillStyle='#213d33';ctx.font='42px serif';ctx.fillText('PaperLens 文档识别测试',100,150);ctx.font='25px sans-serif';['这是一份内置样本文档，用于测试本地 OCR。','你可以识别整页，也可以框选下面的文字区域。','','项目名称：文档数字化工具','版本：0.5.11','日期：2026 年 11 月 16 日','','识别后可以编辑文字、复制内容或导出文件。','核验由本机 MiniCPM-OCR-Jev 独立模型完成。','','English recognition sample:','Make every document editable.','Total: 128.00 CNY'].forEach((line,i)=>ctx.fillText(line,100,270+i*65));const doc={id:id(),name:'内置测试文档.png',createdAt:Date.now(),pages:[pageFromCanvas(canvas)]};state.docs.push(doc);state.docId=doc.id;state.page=0;state.region=0;persist();render()});
 $('browser-files').addEventListener('change',async e=>{const chosen=[...e.target.files];e.target.value='';await runImport(async()=>{const files=[];for(const f of chosen){if(f.size>80*1024*1024)throw new Error('单文件不能超过 80MB');const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=reject;reader.readAsDataURL(f)});files.push({name:f.name,mime:f.type,data})}await importFiles(files)},'导入文档…')});
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='o'){e.preventDefault();chooseDocuments().catch(error)}if(e.key==='Escape'&&state.cropping)toggleCrop()});
 async function init(){try{state.docs=migrateLocalScores(await loadDB());state.docs.sort((a,b)=>a.createdAt-b.createdAt);state.docId=state.docs.at(-1)?.id||null}catch(e){toast('无法恢复本机文档：'+e.message)}if(native()){state.settings=await call('GetSettings');window.runtime?.EventsOn('engine-progress',p=>{$('download-progress').value=p.percent;$('download-message').textContent=p.message;$('status').textContent=p.message;if(/退出/.test(p.message))checkEngine().catch(()=>{})});window.runtime?.OnFileDrop((x,y,paths)=>{runImport(async()=>importFiles(await call('ReadDocuments',paths)))},true);checkEngine().catch(()=>{})}render()}
@@ -298,7 +300,7 @@ async function retryRegion(page,r){
    if(additions.length)return {score:Math.min(...additions.map(p=>p.score)),verdict:'scored',parts:additions,partial:true,replacementText:r.text+'\n\n'+additions.map(p=>p.text).join('\n\n')};return whole;}
  });
  const words=wordEvidence(owner.pages.flatMap(p=>p.regions.filter(x=>!x.aggregate).map(x=>x.text)));
- if(textAuditAllowed(r)&&(detailRequired(r,words)||needsReview(r,state.settings.threshold??.9)))await auditDetails(r,{current:()=>state.docs.includes(owner)&&page.regions.includes(r),cancelled:()=>state.cancelled,version:detailVersion(words,state.settings.threshold??.9)+(r.layoutLabel==='figure'?':ticks2':'')+':context2',refine:()=>refineDetails(page,r,words)});
+ if(textAuditAllowed(r)&&(detailRequired(r,words)||needsReview(r,state.settings.threshold??.9)))await auditDetails(r,{current:()=>state.docs.includes(owner)&&page.regions.includes(r),cancelled:()=>state.cancelled,version:detailVersion(words,state.settings.threshold??.9)+(r.layoutLabel==='figure'?':ticks2':'')+':context4',refine:()=>refineDetails(page,r,words)});
  }finally{state.correcting=false;persist();render()}
 }
 async function correctDocument(){
@@ -320,6 +322,7 @@ async function correctDocument(){
    }catch(e){failed++;page.scanAudit={status:'partial',error:readableError(e)};page.processingError=readableError(e)}
    finally{state.correcting=false;mergeSegments(page);persist();render()}
   }
+  if(!state.cancelled)await auditContinuations(doc);
   return finishDocument(doc,failed?`自动校对有 ${failed} 页未完成`:'自动校对处理结束');
  },'开始自动校对…');
 }
@@ -372,7 +375,7 @@ async function refineDetails(page,r,words){
   const raw=await call('Verify',await croppedData(page,part),renderedText,'text','');
   // Fixed normalization matches the OCR input: original pixels, uniform scale,
   // white margin. No threshold search, sharpening, glyph removal or rewriting.
-  if(part!==r&&part.bbox[3]-part.bbox[1]<40){const normalized=await call('Verify',await detailImage(page,part),renderedText,'text','');return {...normalized,renderedText,rawScore:raw.score,rawVerdict:raw.verdict,imageTransform:'uniform-scale-white-margin'};}
+  if(normalizeVerificationImage(part===r,code,part.bbox[3]-part.bbox[1])){const normalized=await call('Verify',await detailImage(page,part),renderedText,'text','');return {...normalized,renderedText,rawScore:raw.score,rawVerdict:raw.verdict,imageTransform:'uniform-scale-white-margin'};}
   return {...raw,renderedText};
  };
 
@@ -437,9 +440,37 @@ async function refineDetails(page,r,words){
  if(!accepted&&figure){const patched=patchVerifiedScales(base,parts,threshold);if(patched!==base)return {accepted:true,partial:true,text:patched,parts:[...parts,...patches],score:Math.min(...[...parts,...patches].filter(p=>p.verdict==='scored'&&p.score>=threshold).map(p=>p.score)),verdict:'scored',reason:'已补入图像小块直接识别且核验通过的刻度，图表仍待复核'};}
 
  if(!accepted&&isCode(r.text)){const patched=patchVerifiedDetails(base,[...parts,...patches],threshold);if(patched!==base)return {accepted:true,partial:true,text:patched,parts:[...parts,...patches],score:Math.min(...[...parts,...patches].filter(p=>p.verdict==='scored'&&p.score>=threshold).map(p=>p.score)),verdict:'scored',reason:'已修正通过小块核验的 SQL 标点；其余内容仍待复核'};}
- return {accepted,text:accepted&&code?base:text,parts,contexts,coverage,wholeScore:whole.score,score:accepted?Math.min(whole.score,...(contextPasses(contexts,parts.length,threshold)?contexts:parts).map(p=>p.score)):whole.score,verdict:'scored',reason:accepted?'小块复读逐块核验通过':`细节复读仍有不一致（${parts.filter(p=>p.score<threshold||p.verdict!=='scored').length} 个小块；整段分数 ${Number.isFinite(whole.score)?whole.score.toFixed(3):'不可用'}）；保留候选和原文待复核`};
+ return {accepted,text:accepted&&code?base:text,parts,contexts,patches,coverage,whole,wholeScore:whole.score,score:accepted?Math.min(whole.score,...(contextPasses(contexts,parts.length,threshold)?contexts:parts).map(p=>p.score)):whole.score,verdict:'scored',reason:accepted?'小块复读逐块核验通过':`细节复读仍有不一致（${parts.filter(p=>p.score<threshold||p.verdict!=='scored').length} 个小块；整段分数 ${Number.isFinite(whole.score)?whole.score.toFixed(3):'不可用'}）；保留候选和原文待复核`};
 }
 async function detailImage(page,part){
  const image=await imageFromURL('data:image/png;base64,'+await croppedData(page,part)),scale=Math.min(3,1800/image.width),pad=24,canvas=document.createElement('canvas');
  canvas.width=Math.round(image.width*scale)+pad*2;canvas.height=Math.round(image.height*scale)+pad*2;const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,pad,pad,image.width*scale,image.height*scale);return canvas.toDataURL('image/png').split(',')[1];
+}
+
+async function auditContinuations(doc){
+ const request=checkedRequest(call,()=>state.cancelled);
+ const words=wordEvidence(doc.pages.flatMap(p=>p.regions.filter(r=>!r.aggregate).map(r=>r.text)));
+ const ordered=doc.pages.flatMap((page,pageIndex)=>readingOrder(page.regions.filter(r=>r.auto&&!/caption|title/.test(r.layoutLabel||'')&&!/^\d+$/.test(r.text.trim()))).map(r=>({page,pageIndex,r})));
+ const audits=[];
+ for(let i=0;i<ordered.length-1;i++){
+  if(state.cancelled)break;const a=ordered[i],b=ordered[i+1],candidate=continuationCandidate(doc,a.pageIndex,a.r,b.pageIndex,b.r,words);if(!candidate)continue;
+  const audit={...candidate,accepted:false};audits.push(audit);$('status').textContent='自动校对：核验跨栏 / 跨页断词…';
+  try{
+   const ends=[];
+   for(const [item,last] of [[a,true],[b,false]]){
+    const image=await imageFromURL('data:image/png;base64,'+await croppedData(item.page,item.r)),c=document.createElement('canvas');c.width=image.width;c.height=image.height;const cx=c.getContext('2d');cx.drawImage(image,0,0);
+    const boxes=detailBoxes(c.width,c.height,cx.getImageData(0,0,c.width,c.height).data);if(!boxes.length)throw Error('未找到可靠的续接行');
+    const box=last?boxes.at(-1):boxes[0],part={bbox:[box[0]+item.r.bbox[0],box[1]+item.r.bbox[1],box[2]+item.r.bbox[0],box[3]+item.r.bbox[1]]};
+    const png=await detailImage(item.page,part),read=await request('Recognize',png,'text');ends.push({png,text:read.text,bbox:part.bbox,page:item.pageIndex});
+   }
+   const tail=ends[0].text.match(/([A-Za-z]{2,})-\s*$/),head=ends[1].text.match(/^([a-z]{2,})\b/);if(!tail||!head||tail[1]+head[1]!==candidate.word)throw Error('两端独立复读与断词候选不一致');
+   const images=await Promise.all(ends.map(e=>imageFromURL('data:image/png;base64,'+e.png))),canvas=document.createElement('canvas');canvas.width=Math.max(...images.map(im=>im.width));canvas.height=images.reduce((n,im)=>n+im.height,0);const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);let y=0;for(const im of images){ctx.drawImage(im,0,y);y+=im.height;}
+   const png=canvas.toDataURL('image/png').split(',')[1],literal=ends.map(e=>e.text).join('\n'),expected=literal.replace(/([A-Za-z])-\s*\n\s*([a-z])/,'$1$2');
+   const reread=await request('Recognize',png,'text');await ensureLocalJev();if(state.cancelled)break;
+   const good=await request('Verify',png,expected,'text',''),alternative=await request('Verify',png,literal,'text','');
+   Object.assign(audit,{ends:ends.map(({png,...rest})=>rest),expected,reread:reread.text,score:good.score,verdict:good.verdict,alternativeScore:alternative.score,alternativeVerdict:alternative.verdict,accepted:!state.cancelled});
+   audit.accepted=acceptedContinuation(doc,audit,state.settings.threshold??.9);
+  }catch(e){audit.error=readableError(e)}
+ }
+ if(state.docs.includes(doc)&&!state.cancelled)doc.continuationAudits=audits;persist();render();
 }

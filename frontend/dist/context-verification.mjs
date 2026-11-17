@@ -19,3 +19,7 @@ export function verifiedCodeText(source,parts,threshold=.9){
  const candidate=parts.map(p=>p.text).join('\n'),safe=patchVerifiedDetails(source,parts,threshold);
  return sameCode(candidate,safe)?safe:null;
 }
+
+// Large prose already provides context; scaling it can distort verifier layout.
+// Use one geometry-based policy, never choose an input by its returned score.
+export const normalizeVerificationImage=(whole,code,height)=>whole?(code||height<100):height<40;

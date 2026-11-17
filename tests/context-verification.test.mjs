@@ -18,3 +18,5 @@ test('SQL literal whitespace and comment boundaries remain semantic',()=>{const 
 test("unsupported SQL dollar quotes and block comments never authorize edits",()=>{for(const source of ["SELECT $$foo bar$$;","SELECT $tag$foo bar$tag$;","SELECT /* foo bar */ x;"]){assert.equal(verifiedCodeText(source,[{text:source,score:.99,verdict:"scored"}]),null);}});
 
 test("long SQL spacing mismatch is bounded and preserves original",()=>{const source="SELECT"+" ".repeat(40)+"z FROM t;";assert.equal(patchVerifiedDetails(source,[{text:"SELECT"+" ".repeat(12)+"x_y FROM t;",score:.99,verdict:"scored"}]),source);});
+import {normalizeVerificationImage} from '../frontend/dist/context-verification.mjs';
+test('fixed image policy normalizes SQL and short prose, not long prose',()=>{assert.equal(normalizeVerificationImage(true,true,500),true);assert.equal(normalizeVerificationImage(true,false,76),true);assert.equal(normalizeVerificationImage(true,false,243),false);assert.equal(normalizeVerificationImage(false,false,22),true);assert.equal(normalizeVerificationImage(false,false,50),false)});
