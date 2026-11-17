@@ -1,5 +1,5 @@
 import {continuationCandidate,acceptedContinuation,checkedRequest} from './continuations.mjs';
-import {verificationCandidate,normalizeVerificationImage,sameText,lineContexts,contextPasses,textAuditAllowed,verifiedCodeText} from './context-verification.mjs';
+import {verificationCandidate,normalizeVerificationImage,statementContexts,alignedCode,sameText,lineContexts,contextPasses,textAuditAllowed,verifiedCodeText} from './context-verification.mjs';
 import {wordEvidence,joinCandidates,detailBoxes,isCode,sameCode,detailRequired,detailVersion,patchVerifiedDetails,verifiedLineJoin,joinReread,sqlPunctuationCandidates,patchVerifiedScales,numericTickBoxes,numericEvidenceResult} from './detail-correction.mjs';
 import {recordReview,lastReview,undoLastReview} from './review-history.mjs';
 import {splitRaster} from './segments.mjs';
@@ -269,7 +269,7 @@ async function setupTask(method,...args){
 }
 bind('download-models',()=>setupTask('DownloadModels',$('download-source').value));bind('install-engine',()=>setupTask('InstallEngine'));
 bind('clear-data',async()=>{if(state.busy)return;if(!await confirmAction('清空本机文档库？','所有导入文档与未导出的编辑结果都会被删除。模型文件和设置保留。'))return;clearTimeout(saveTimer);if(state.db)await new Promise((resolve,reject)=>{const tx=state.db.transaction('documents','readwrite');tx.objectStore('documents').clear();tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});state.docs=[];state.docId=null;$('settings').close();render();toast('文档库已清空')});
-bind('sample',async()=>{const canvas=document.createElement('canvas');canvas.width=1200;canvas.height=1600;const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,1200,1600);ctx.fillStyle='#213d33';ctx.font='42px serif';ctx.fillText('PaperLens 文档识别测试',100,150);ctx.font='25px sans-serif';['这是一份内置样本文档，用于测试本地 OCR。','你可以识别整页，也可以框选下面的文字区域。','','项目名称：文档数字化工具','版本：0.5.11','日期：2026 年 11 月 16 日','','识别后可以编辑文字、复制内容或导出文件。','核验由本机 MiniCPM-OCR-Jev 独立模型完成。','','English recognition sample:','Make every document editable.','Total: 128.00 CNY'].forEach((line,i)=>ctx.fillText(line,100,270+i*65));const doc={id:id(),name:'内置测试文档.png',createdAt:Date.now(),pages:[pageFromCanvas(canvas)]};state.docs.push(doc);state.docId=doc.id;state.page=0;state.region=0;persist();render()});
+bind('sample',async()=>{const canvas=document.createElement('canvas');canvas.width=1200;canvas.height=1600;const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,1200,1600);ctx.fillStyle='#213d33';ctx.font='42px serif';ctx.fillText('PaperLens 文档识别测试',100,150);ctx.font='25px sans-serif';['这是一份内置样本文档，用于测试本地 OCR。','你可以识别整页，也可以框选下面的文字区域。','','项目名称：文档数字化工具','版本：0.5.12','日期：2026 年 11 月 16 日','','识别后可以编辑文字、复制内容或导出文件。','核验由本机 MiniCPM-OCR-Jev 独立模型完成。','','English recognition sample:','Make every document editable.','Total: 128.00 CNY'].forEach((line,i)=>ctx.fillText(line,100,270+i*65));const doc={id:id(),name:'内置测试文档.png',createdAt:Date.now(),pages:[pageFromCanvas(canvas)]};state.docs.push(doc);state.docId=doc.id;state.page=0;state.region=0;persist();render()});
 $('browser-files').addEventListener('change',async e=>{const chosen=[...e.target.files];e.target.value='';await runImport(async()=>{const files=[];for(const f of chosen){if(f.size>80*1024*1024)throw new Error('单文件不能超过 80MB');const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=reject;reader.readAsDataURL(f)});files.push({name:f.name,mime:f.type,data})}await importFiles(files)},'导入文档…')});
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='o'){e.preventDefault();chooseDocuments().catch(error)}if(e.key==='Escape'&&state.cropping)toggleCrop()});
 async function init(){try{state.docs=migrateLocalScores(await loadDB());state.docs.sort((a,b)=>a.createdAt-b.createdAt);state.docId=state.docs.at(-1)?.id||null}catch(e){toast('无法恢复本机文档：'+e.message)}if(native()){state.settings=await call('GetSettings');window.runtime?.EventsOn('engine-progress',p=>{$('download-progress').value=p.percent;$('download-message').textContent=p.message;$('status').textContent=p.message;if(/退出/.test(p.message))checkEngine().catch(()=>{})});window.runtime?.OnFileDrop((x,y,paths)=>{runImport(async()=>importFiles(await call('ReadDocuments',paths)))},true);checkEngine().catch(()=>{})}render()}
@@ -300,7 +300,7 @@ async function retryRegion(page,r){
    if(additions.length)return {score:Math.min(...additions.map(p=>p.score)),verdict:'scored',parts:additions,partial:true,replacementText:r.text+'\n\n'+additions.map(p=>p.text).join('\n\n')};return whole;}
  });
  const words=wordEvidence(owner.pages.flatMap(p=>p.regions.filter(x=>!x.aggregate).map(x=>x.text)));
- if(textAuditAllowed(r)&&(detailRequired(r,words)||needsReview(r,state.settings.threshold??.9)))await auditDetails(r,{current:()=>state.docs.includes(owner)&&page.regions.includes(r),cancelled:()=>state.cancelled,version:detailVersion(words,state.settings.threshold??.9)+(r.layoutLabel==='figure'?':ticks2':'')+':context4',refine:()=>refineDetails(page,r,words)});
+ if(textAuditAllowed(r)&&(detailRequired(r,words)||needsReview(r,state.settings.threshold??.9)))await auditDetails(r,{current:()=>state.docs.includes(owner)&&page.regions.includes(r),cancelled:()=>state.cancelled,version:detailVersion(words,state.settings.threshold??.9)+(r.layoutLabel==='figure'?':ticks2':'')+':context5',refine:()=>refineDetails(page,r,words)});
  }finally{state.correcting=false;persist();render()}
 }
 async function correctDocument(){
@@ -371,7 +371,7 @@ async function refineDetails(page,r,words){
  const threshold=state.settings.threshold??.9,joined=joinCandidates(r.text,words),code=isCode(r.text);
  await ensureLocalJev();
  const verifyText=async(text,part=r)=>{if(state.cancelled)throw Error('已取消');
-  const renderedText=verificationCandidate(text,code);
+  const renderedText=verificationCandidate(code?alignedCode(text,part===r?parts:part.lines||[]):text,code);
   const raw=await call('Verify',await croppedData(page,part),renderedText,'text','');
   // Fixed normalization matches the OCR input: original pixels, uniform scale,
   // white margin. No threshold search, sharpening, glyph removal or rewriting.
@@ -412,7 +412,7 @@ async function refineDetails(page,r,words){
  for(const word of tokens(base)){const index=remaining.indexOf(word);if(index<0)missing++;else remaining.splice(index,1)}
  const coverage=1-missing/Math.max(1,tokens(base).length),whole=await verifyText(text);
  const contexts=[];
- if(!figure&&!parts.every(p=>p.verdict==='scored'&&p.score>=threshold&&p.score<=1))for(const group of lineContexts(parts)){
+ if(!figure&&!parts.every(p=>p.verdict==='scored'&&p.score>=threshold&&p.score<=1))for(const group of statementContexts(parts,code)){
   if(state.cancelled)throw Error('已取消');$('status').textContent='自动校对：结合相邻文字行核验…';
   const reread=await call('Recognize',await detailImage(page,group),'text'),expected=code?group.lines.map(p=>p.text).join('\n'):joinReread(group.lines,words),matches=code?sameCode(reread.text,expected):sameText(reread.text,expected);
   const score=await verifyText(reread.text,group);contexts.push({...group,lines:undefined,text:reread.text,matches,...score});
@@ -456,21 +456,25 @@ async function auditContinuations(doc){
   if(state.cancelled)break;const a=ordered[i],b=ordered[i+1],candidate=continuationCandidate(doc,a.pageIndex,a.r,b.pageIndex,b.r,words);if(!candidate)continue;
   const audit={...candidate,accepted:false};audits.push(audit);$('status').textContent='自动校对：核验跨栏 / 跨页断词…';
   try{
+   const readWindow=async depth=>{
    const ends=[];
    for(const [item,last] of [[a,true],[b,false]]){
     const image=await imageFromURL('data:image/png;base64,'+await croppedData(item.page,item.r)),c=document.createElement('canvas');c.width=image.width;c.height=image.height;const cx=c.getContext('2d');cx.drawImage(image,0,0);
     const boxes=detailBoxes(c.width,c.height,cx.getImageData(0,0,c.width,c.height).data);if(!boxes.length)throw Error('未找到可靠的续接行');
-    const box=last?boxes.at(-1):boxes[0],part={bbox:[box[0]+item.r.bbox[0],box[1]+item.r.bbox[1],box[2]+item.r.bbox[0],box[3]+item.r.bbox[1]]};
+    if(boxes.length<depth)throw Error('续接上下文行数不足');const selected=last?boxes.slice(-depth):boxes.slice(0,depth),box=[Math.min(...selected.map(b=>b[0])),Math.min(...selected.map(b=>b[1])),Math.max(...selected.map(b=>b[2])),Math.max(...selected.map(b=>b[3]))],part={bbox:[box[0]+item.r.bbox[0],box[1]+item.r.bbox[1],box[2]+item.r.bbox[0],box[3]+item.r.bbox[1]]};
     const png=await detailImage(item.page,part),read=await request('Recognize',png,'text');ends.push({png,text:read.text,bbox:part.bbox,page:item.pageIndex});
    }
    const tail=ends[0].text.match(/([A-Za-z]{2,})-\s*$/),head=ends[1].text.match(/^([a-z]{2,})\b/);if(!tail||!head||tail[1]+head[1]!==candidate.word)throw Error('两端独立复读与断词候选不一致');
    const images=await Promise.all(ends.map(e=>imageFromURL('data:image/png;base64,'+e.png))),canvas=document.createElement('canvas');canvas.width=Math.max(...images.map(im=>im.width));canvas.height=images.reduce((n,im)=>n+im.height,0);const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);let y=0;for(const im of images){ctx.drawImage(im,0,y);y+=im.height;}
-   const png=canvas.toDataURL('image/png').split(',')[1],literal=ends.map(e=>e.text).join('\n'),expected=literal.replace(/([A-Za-z])-\s*\n\s*([a-z])/,'$1$2');
-   const reread=await request('Recognize',png,'text');await ensureLocalJev();if(state.cancelled)break;
+   const png=canvas.toDataURL('image/png').split(',')[1],literal=ends.map(e=>e.text).join('\n'),expected=ends[0].text.replace(/-\s*$/,'')+ends[1].text.trimStart();
+   const reread=await request('Recognize',png,'text');await ensureLocalJev();if(state.cancelled)throw Error('已取消');
    const good=await request('Verify',png,expected,'text',''),alternative=await request('Verify',png,literal,'text','');
-   Object.assign(audit,{ends:ends.map(({png,...rest})=>rest),expected,reread:reread.text,score:good.score,verdict:good.verdict,alternativeScore:alternative.score,alternativeVerdict:alternative.verdict,accepted:!state.cancelled});
+   return {ends:ends.map(({png,...rest})=>rest),expected,reread:reread.text,score:good.score,verdict:good.verdict,alternativeScore:alternative.score,alternativeVerdict:alternative.verdict};
+   };
+   Object.assign(audit,await readWindow(1),{accepted:!state.cancelled});
+   if(!candidate.lexicalEvidence)audit.extra=await readWindow(2);
    audit.accepted=acceptedContinuation(doc,audit,state.settings.threshold??.9);
-  }catch(e){audit.error=readableError(e)}
+  }catch(e){audit.accepted=false;audit.error=readableError(e)}
  }
  if(state.docs.includes(doc)&&!state.cancelled)doc.continuationAudits=audits;persist();render();
 }

@@ -22,4 +22,25 @@ export function verifiedCodeText(source,parts,threshold=.9){
 
 // Large prose already provides context; scaling it can distort verifier layout.
 // Use one geometry-based policy, never choose an input by its returned score.
-export const normalizeVerificationImage=(whole,code,height)=>whole?(code||height<100):height<40;
+export const normalizeVerificationImage=(whole,code,height)=>code||(whole?height<100:height<40);
+
+export function statementContexts(parts,code=false){
+ const groups=[];let start=0;
+ const emit=end=>{const lines=parts.slice(start,end);groups.push({start,end,lines,bbox:[Math.min(...lines.map(p=>p.bbox[0])),Math.min(...lines.map(p=>p.bbox[1])),Math.max(...lines.map(p=>p.bbox[2])),Math.max(...lines.map(p=>p.bbox[3]))]});start=end;};
+ for(let i=0;i<parts.length;i++){
+  const a=parts[i],b=parts[i+1];if(!a.bbox)return [];
+  if(b){const h=Math.max(a.bbox[3]-a.bbox[1],b.bbox[3]-b.bbox[1]);if(b.bbox[1]<=a.bbox[1]||Math.abs(b.bbox[0]-a.bbox[0])>h*3)return [];}
+  const gap=b?b.bbox[1]-a.bbox[3]:Infinity,h=a.bbox[3]-a.bbox[1];
+  if(code){if(!b||gap>h*.8)emit(i+1);}
+  else{const text=parts.slice(start,i+1).map(p=>p.text).join(' '),open=(text.match(/“/g)||[]).length>(text.match(/”/g)||[]).length;
+   if(!b||gap>h*1.5||(i-start>=2&&!open&&!/[A-Za-z]-$/.test(a.text)))emit(i+1);
+  }
+ }return groups;
+}
+export function alignedCode(text,parts){
+ if(!parts.length||!sameCode(text,parts.map(p=>p.text).join('\n')))return text;
+ const widths=parts.filter(p=>p.text.trim().length>10).map(p=>(p.bbox[2]-p.bbox[0])/p.text.trim().length).sort((a,b)=>a-b);if(!widths.length)return text;
+ const unit=widths[Math.floor(widths.length/2)],left=Math.min(...parts.map(p=>p.bbox[0]));if(!(unit>0))return text;
+ const aligned=parts.map((p,i)=>{const gap=i?p.bbox[1]-parts[i-1].bbox[3]:0,blank=gap>(p.bbox[3]-p.bbox[1])*.8?'\n':'';return blank+' '.repeat(Math.min(16,Math.max(0,Math.round((p.bbox[0]-left)/unit))))+p.text.trim();}).join('\n');
+ return sameCode(text,aligned)?aligned:text;
+}
