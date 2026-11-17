@@ -44,3 +44,24 @@ test('SQL patch repairs verified identifiers but never guesses decimal points',(
 test('temporary detail failure can be retried',async()=>{const r={text:'x',revision:1,bbox:[0,0,10,10]};await auditDetails(r,{refine:async()=>{throw Error('offline')}});await auditDetails(r,{refine:async()=>({accepted:true,text:'ok',score:.99,verdict:'scored'})});assert.equal(effectiveResult(r).text,'ok')});
 import {needsReview} from '../frontend/dist/state.mjs';
 test('partial detail repair never borrows an old high score',async()=>{const r={text:'SELECT loc region FROM t;',revision:1,bbox:[0,0,100,40],score:.99,verdict:'scored'};await auditDetails(r,{refine:async()=>({text:'SELECT loc.region FROM t;',score:.98,verdict:'scored',accepted:true,partial:true})});assert.equal(needsReview(r),true);assert.match(effectiveResult(r).text,/loc\.region/)});
+import {supportedJoin} from '../frontend/dist/detail-correction.mjs';
+test('independent reread must support joins without deleting genuine in-line hyphens',()=>{
+ assert.equal(supportedJoin('Please resign the contract.',[{text:'Please re-sign the contract.'}]),false);
+ assert.equal(supportedJoin('A Postgres extension.',[{text:'A Post-'},{text:'gres extension.'}]),true);
+ assert.equal(supportedJoin('A Postgres extension.',[{text:'A Postgres extension. Unexpected text'}]),false);
+});
+import {currentProof} from '../frontend/dist/proofread.mjs';
+test('corrected export retains review warning for partial high-score SQL repairs',async()=>{
+ const r={id:'sql',auto:true,text:'SELECT loc region FROM t;',originalText:'SELECT loc region FROM t;',revision:1,bbox:[0,0,100,40],score:.99,verdict:'scored'};
+ await auditDetails(r,{refine:async()=>({text:'SELECT loc.region FROM t;',score:.98,verdict:'scored',accepted:true,partial:true})});
+ const p={width:100,height:40,regions:[{aggregate:true,text:r.text},r],scanAudit:{status:'complete'},reference:{status:'unavailable'}};
+ const proof=currentProof(p);assert.equal(proof.status,'partial');assert.equal(proof.unresolved,1);assert.match(proof.text,/loc\.region/);
+});
+import {joinReread,sqlPunctuationCandidates,patchVerifiedScales} from '../frontend/dist/detail-correction.mjs';
+test('physical line joins preserve genuine hyphens while repairing split words',()=>{const words=wordEvidence(['timestamp high-scale pushdowns']);assert.equal(joinReread([{text:'a times-'},{text:'tamp in high-'},{text:'scale data'}],words),'a timestamp in high-scale data')});
+test('SQL punctuation hypotheses require an existing alias and image verification downstream',()=>{assert.deepEqual(sqlPunctuationCandidates('SELECT loc region, AVG(bus.speed) FROM bus','WHERE loc.city = 1'),['SELECT loc.region, AVG(bus.speed) FROM bus']);assert.deepEqual(sqlPunctuationCandidates('SELECT name FROM data','WHERE data.id = 1'),[])});
+test('scales are copied only from matching verified image rows, never extrapolated',()=>{const p={bbox:[0,0,100,10],text:'0 50 100 150 200 250',score:.99,verdict:'scored'},s='50 100 150 200 250';assert.equal(patchVerifiedScales(s,[p]),p.text);assert.equal(patchVerifiedScales(s,[{...p,score:.5}]),s);assert.equal(patchVerifiedScales(s+'\n'+s,[p]),s+'\n'+s);assert.equal(patchVerifiedScales(s+'\n'+s,[p,{...p,bbox:[200,0,300,10]}]),p.text+'\n'+p.text)});
+
+test('token verification cannot authorize punctuation elsewhere in its line',()=>{assert.equal(patchVerifiedDetails('SELECT goodname,badname FROM t',[{text:'SELECT good_name,bad_name FROM t',tokenEvidence:{text:'good_name'},score:.99,verdict:'scored'}]),'SELECT good_name,badname FROM t')});
+test('chart evidence already present or duplicated cannot repair another chart',()=>{const p={bbox:[0,0,100,10],text:'0 50 100 150',score:.99,verdict:'scored'},s='50 100 150 200';assert.equal(patchVerifiedScales('50 100 150 200\n0 50 100 150 200',[{...p,text:'0 50 100 150 200'}]),'50 100 150 200\n0 50 100 150 200');assert.equal(patchVerifiedScales(s+'\n'+s,[{...p,text:'0 '+s},{...p,text:'0 '+s}]),s+'\n'+s)});
+test('single line glyphs survive component filtering',()=>{const p=new Uint8Array(100*30*4).fill(255);for(let y=8;y<20;y++)for(let x=10;x<18;x++){const i=(y*100+x)*4;p[i]=p[i+1]=p[i+2]=0}assert.equal(detailBoxes(100,30,p).length,1)});

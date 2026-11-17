@@ -1,4 +1,4 @@
-import {wordEvidence,joinCandidates,detailBoxes,isCode,detailRequired,detailVersion,patchVerifiedDetails} from './detail-correction.mjs';
+import {wordEvidence,joinCandidates,detailBoxes,isCode,detailRequired,detailVersion,patchVerifiedDetails,supportedJoin,joinReread,sqlPunctuationCandidates,patchVerifiedScales} from './detail-correction.mjs';
 import {recordReview,lastReview,undoLastReview} from './review-history.mjs';
 import {splitRaster} from './segments.mjs';
 import {correctRegion,uncoveredRegions,acceptedCorrection,auditDetails,detailPending} from './correction.mjs';
@@ -377,8 +377,8 @@ async function refineDetails(page,r,words){
   const b=boxes[i],part={bbox:[b[0]+r.bbox[0],b[1]+r.bbox[1],b[2]+r.bbox[0],b[3]+r.bbox[1]]};
   const result=await call('Recognize',await detailImage(page,part),'text');const score=await verifyText(result.text,part);parts.push({...part,text:result.text,...score});
  }
- if(joined&&parts.map(p=>p.text).join('\n').replace(/([A-Za-z])-\n([a-z])/g,'$1$2').replace(/\s+/g,' ').includes(joined.replace(/\s+/g,' '))){const score=await verifyText(joined);if(score.verdict==='scored'&&score.score>=threshold&&score.score<=1)return {...score,accepted:true,text:joined,reason:'断词候选经独立逐行复读及 Jev 核验'};}
- const text=parts.map(p=>p.text).join(isCode(r.text)||figure?'\n':' '),base=acceptedCorrection(r)?.text||r.text;
+ if(joined&&joinReread(parts,words).replace(/\s+/g,' ').trim()===joined.replace(/\s+/g,' ').trim()){const score=await verifyText(joined);if(score.verdict==='scored'&&score.score>=threshold&&score.score<=1)return {...score,accepted:true,text:joined,reason:'断词候选经独立逐行复读及 Jev 核验'};}
+ const text=isCode(r.text)||figure?parts.map(p=>p.text).join('\n'):joinReread(parts,words);const base=acceptedCorrection(r)?.text||r.text;
  // A small crop can lose context: no wholesale replacement when source words
  // disappear. Punctuation is checked separately by the image verifier.
  const tokens=t=>(t.toLowerCase().replace(/([a-z])-\s*([a-z])/g,'$1$2').match(/[\p{L}\p{N}]+/gu)||[]),remaining=tokens(text);let missing=0;
@@ -386,7 +386,20 @@ async function refineDetails(page,r,words){
  const coverage=1-missing/Math.max(1,tokens(base).length),whole=await verifyText(text);
  const allPass=parts.every(p=>p.verdict==='scored'&&Number.isFinite(p.score)&&p.score>=threshold&&p.score<=1);
  const accepted=coverage===1&&allPass&&whole.verdict==='scored'&&whole.score>=threshold&&whole.score<=1;
- if(!accepted&&isCode(r.text)){const patched=patchVerifiedDetails(base,parts,threshold);if(patched!==base)return {accepted:true,partial:true,text:patched,parts,score:Math.min(...parts.filter(p=>p.verdict==='scored'&&p.score>=threshold).map(p=>p.score)),verdict:'scored',reason:'已修正通过小块核验的 SQL 标点；其余内容仍待复核'};}
+ const patches=[];
+ if(isCode(r.text))for(const part of parts){
+  for(const candidate of sqlPunctuationCandidates(part.text,r.text)){const v=await verifyText(candidate,part);if(v.verdict==='scored'&&v.score>=threshold&&v.score<=1)patches.push({...part,text:candidate,...v});}
+  for(const match of part.text.matchAll(/\b[A-Za-z]+_[A-Za-z_]+\b/g)){
+   if(r.text.includes(match[0]))continue;
+   const width=part.bbox[2]-part.bbox[0]-4,unit=width/part.text.length;
+   const token={bbox:[Math.max(part.bbox[0],part.bbox[0]+2+match.index*unit-2),part.bbox[1],Math.min(part.bbox[2],part.bbox[0]+2+(match.index+match[0].length)*unit+2),part.bbox[3]]};
+   const good=await verifyText(match[0],token),bad=await verifyText(match[0].replaceAll('_',''),token);
+   if(good.verdict==='scored'&&good.score>=threshold&&good.score<=1&&bad.verdict==='scored'&&good.score>=bad.score+.05)patches.push({...part,score:good.score,verdict:'scored',tokenEvidence:{...token,text:match[0],score:good.score,alternativeScore:bad.score}});
+  }
+ }
+ if(!accepted&&figure){const patched=patchVerifiedScales(base,parts,threshold);if(patched!==base)return {accepted:true,partial:true,text:patched,parts:[...parts,...patches],score:Math.min(...[...parts,...patches].filter(p=>p.verdict==='scored'&&p.score>=threshold).map(p=>p.score)),verdict:'scored',reason:'已补入图像小块直接识别且核验通过的刻度，图表仍待复核'};}
+
+ if(!accepted&&isCode(r.text)){const patched=patchVerifiedDetails(base,[...parts,...patches],threshold);if(patched!==base)return {accepted:true,partial:true,text:patched,parts:[...parts,...patches],score:Math.min(...[...parts,...patches].filter(p=>p.verdict==='scored'&&p.score>=threshold).map(p=>p.score)),verdict:'scored',reason:'已修正通过小块核验的 SQL 标点；其余内容仍待复核'};}
  return {accepted,text,parts,coverage,score:allPass?Math.min(...parts.map(p=>p.score)):whole.score,verdict:'scored',reason:accepted?'小块复读逐块核验通过':`细节复读仍有不一致（${parts.filter(p=>p.score<threshold||p.verdict!=='scored').length} 个小块）；保留候选和原文待复核`};
 }
 async function detailImage(page,part){
