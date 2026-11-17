@@ -75,3 +75,15 @@ test('physical line-end join uses independently verified lines and document evid
 });
 
 test('line joins never delete SQL subtraction',()=>assert.equal(verifiedLineJoin('SELECT income-tax FROM payroll;',[{text:'SELECT income-',bbox:[0,0,200,15],score:.99,verdict:'scored'},{text:'tax FROM payroll;',bbox:[0,20,200,35],score:.99,verdict:'scored'}],wordEvidence(['incometax'])),null));
+import {numericTickBoxes,verifiedNumericRow} from '../frontend/dist/detail-correction.mjs';
+test('numeric ticks preserve isolated first glyph and reject incomplete or conflicting rereads',()=>{
+ const w=160,h=20,p=new Uint8Array(w*h*4).fill(255);for(const x of [3,45,50,90,95,100,140,145,150])for(let y=5;y<15;y++)for(let xx=x;xx<x+3;xx++){const i=(y*w+xx)*4;p[i]=p[i+1]=p[i+2]=0}
+ assert.equal(numericTickBoxes(w,h,p).length,4);
+ const parts=['0','50','100','150'].map(text=>({text,score:.97,verdict:'scored'}));assert.equal(verifiedNumericRow('0 50 100 150',parts),'0 50 100 150');
+ assert.equal(verifiedNumericRow('0 50 100 150',parts.slice(1)),null);assert.equal(verifiedNumericRow('0 50 100 150',[{...parts[0],score:.89},...parts.slice(1)]),null);assert.equal(verifiedNumericRow('0 50 100 150',[{...parts[0],text:'8'},...parts.slice(1)]),null);
+});
+
+import {numericEvidenceResult} from '../frontend/dist/detail-correction.mjs';
+test('failed tick evidence overrides high row score before scale transfer',()=>{const row={bbox:[0,0,200,20],text:'0 50 100 150 200',score:.99,verdict:'scored'};for(const evidence of [[],['8','50','100','150','200'].map(text=>({text,score:.99,verdict:'scored'})),['0','50','100','150','200'].map((text,i)=>({text,score:i?.99:.89,verdict:'scored'}))]){const checked=numericEvidenceResult(row,evidence);assert.equal(checked.verdict,'unverified');assert.equal(patchVerifiedScales('50 100 150 200',[checked]),'50 100 150 200')}});
+
+test('numeric baseline excludes neighboring axis fragments above the digit row',()=>{const w=160,h=20,p=new Uint8Array(w*h*4).fill(255);const rect=(a,b,c,d)=>{for(let y=b;y<d;y++)for(let x=a;x<c;x++){const i=(y*w+x)*4;p[i]=p[i+1]=p[i+2]=0}};for(const x of [5,45,50,90,95,100,140,145,150])rect(x,5,x+3,15);rect(3,0,4,3);const boxes=numericTickBoxes(w,h,p);assert.equal(boxes.length,4);assert.equal(boxes[0][1],5);assert.equal(boxes[0][3],15)});

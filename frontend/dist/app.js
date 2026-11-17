@@ -1,7 +1,7 @@
-import {wordEvidence,joinCandidates,detailBoxes,isCode,detailRequired,detailVersion,patchVerifiedDetails,verifiedLineJoin,joinReread,sqlPunctuationCandidates,patchVerifiedScales} from './detail-correction.mjs';
+import {wordEvidence,joinCandidates,detailBoxes,isCode,detailRequired,detailVersion,patchVerifiedDetails,verifiedLineJoin,joinReread,sqlPunctuationCandidates,patchVerifiedScales,numericTickBoxes,numericEvidenceResult} from './detail-correction.mjs';
 import {recordReview,lastReview,undoLastReview} from './review-history.mjs';
 import {splitRaster} from './segments.mjs';
-import {correctRegion,uncoveredRegions,acceptedCorrection,auditDetails,detailPending} from './correction.mjs';
+import {correctRegion,uncoveredRegions,acceptedCorrection,auditDetails,detailPending,regionKey} from './correction.mjs';
 import {extractReference,currentProof,exportProof} from './proofread.mjs';
 import {changeText,invalidate,scoreLabel,exportDocument,normalizedBox,migrateLocalScores,reviewIssues,needsReview,mergeSegments} from './state.mjs';
 const $=id=>document.getElementById(id);
@@ -297,7 +297,7 @@ async function retryRegion(page,r){
    if(additions.length)return {score:Math.min(...additions.map(p=>p.score)),verdict:'scored',parts:additions,partial:true,replacementText:r.text+'\n\n'+additions.map(p=>p.text).join('\n\n')};return whole;}
  });
  const words=wordEvidence(owner.pages.flatMap(p=>p.regions.filter(x=>!x.aggregate).map(x=>x.text)));
- if(detailRequired(r,words))await auditDetails(r,{current:()=>state.docs.includes(owner)&&page.regions.includes(r),cancelled:()=>state.cancelled,version:detailVersion(words,state.settings.threshold??.9),refine:()=>refineDetails(page,r,words)});
+ if(detailRequired(r,words))await auditDetails(r,{current:()=>state.docs.includes(owner)&&page.regions.includes(r),cancelled:()=>state.cancelled,version:detailVersion(words,state.settings.threshold??.9)+(r.layoutLabel==='figure'?':ticks2':''),refine:()=>refineDetails(page,r,words)});
  }finally{state.correcting=false;persist();render()}
 }
 async function correctDocument(){
@@ -378,10 +378,25 @@ async function refineDetails(page,r,words){
  const boxes=detailBoxes(canvas.width,canvas.height,ctx.getImageData(0,0,canvas.width,canvas.height).data,{figure});
  if(!boxes.length)throw Error('未找到可靠的文字小块，保留原文待复核');
  const parts=[];
+ const cached=r.detailAudit?.key===regionKey(r)&&(r.detailAudit.version===detailVersion(words,threshold)||r.detailAudit.version.startsWith(detailVersion(words,threshold)+':ticks'))?r.detailAudit.parts:null;
  for(let i=0;i<boxes.length;i++){
   if(state.cancelled)throw Error('已取消');$('status').textContent=`自动校对：细节复读 ${i+1}/${boxes.length}（标点、断词与刻度）`;
   const b=boxes[i],part={bbox:[b[0]+r.bbox[0],b[1]+r.bbox[1],b[2]+r.bbox[0],b[3]+r.bbox[1]]};
-  const result=await call('Recognize',await detailImage(page,part),'text');const score=await verifyText(result.text,part);parts.push({...part,text:result.text,...score});
+  const prior=cached?.find(p=>JSON.stringify(p.bbox)===JSON.stringify(part.bbox)&&['uniform-scale-white-margin','independent-numeric-ticks'].includes(p.imageTransform));
+  if(prior)parts.push({...prior});else{const result=await call('Recognize',await detailImage(page,part),'text');const score=await verifyText(result.text,part);parts.push({...part,text:result.text,...score});}
+ }
+ if(figure)for(const part of parts){
+  if(!/^\s*\d+(?:[,.]\d+)*(?:\s+\d+(?:[,.]\d+)*){3,}\s*$/.test(part.text))continue;
+  const im=await imageFromURL('data:image/png;base64,'+await croppedData(page,part)),c=document.createElement('canvas');c.width=im.width;c.height=im.height;const cx=c.getContext('2d');cx.drawImage(im,0,0);
+  const ticks=numericTickBoxes(c.width,c.height,cx.getImageData(0,0,c.width,c.height).data);if(ticks.length!==part.text.trim().split(/\s+/).length){Object.assign(part,numericEvidenceResult(part,[],threshold));continue;}
+  const evidence=[];
+  for(let i=0;i<ticks.length;i++){
+   if(state.cancelled)throw Error('已取消');$('status').textContent=`自动校对：逐个核验刻度 ${i+1}/${ticks.length}`;
+   const b=ticks[i],tick={bbox:[b[0]+part.bbox[0],b[1]+part.bbox[1],b[2]+part.bbox[0],b[3]+part.bbox[1]]};
+   const read=await call('Recognize',await detailImage(page,tick),'text'),v=await verifyText(read.text,tick);evidence.push({...tick,text:read.text,...v});
+  }
+  Object.assign(part,numericEvidenceResult(part,evidence,threshold));
+
  }
  if(joined&&joinReread(parts,words).replace(/\s+/g,' ').trim()===joined.replace(/\s+/g,' ').trim()){const score=await verifyText(joined);if(score.verdict==='scored'&&score.score>=threshold&&score.score<=1)return {...score,accepted:true,text:joined,reason:'断词候选经独立逐行复读及 Jev 核验'};}
  const text=isCode(r.text)||figure?parts.map(p=>p.text).join('\n'):joinReread(parts,words);const base=acceptedCorrection(r)?.text||r.text;

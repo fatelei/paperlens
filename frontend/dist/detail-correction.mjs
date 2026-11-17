@@ -112,3 +112,29 @@ export function verifiedLineJoin(source,parts,words,threshold=.9){
  const norm=t=>t.replace(/\s+/g,' ').trim();
  return changed&&norm(result)===norm(joinReread(parts,words))?result:null;
 }
+
+// Split widely spaced numeric ticks using original ink columns, never inferred
+// arithmetic. Each detected group is reread independently before any transfer.
+export function numericTickBoxes(width,height,rgba){
+ if(width*height>100000||height<3)return [];
+ const rowInk=Array.from({length:height},(_,y)=>{let n=0;for(let x=0;x<width;x++){const k=(y*width+x)*4;if((rgba[k]+rgba[k+1]+rgba[k+2])/3<180)n++;}return n;});
+ const peak=Math.max(...rowInk),active=rowInk.map((n,y)=>n>=Math.max(3,peak*.25)?y:-1).filter(y=>y>=0);if(!active.length)return [];
+ const top=active[0],bottom=active.at(-1)+1;
+ const spans=[];let start=-1,last=-1;
+ for(let x=0;x<width;x++){
+  let ink=false;for(let y=top;y<bottom;y++){const k=(y*width+x)*4;if((rgba[k]+rgba[k+1]+rgba[k+2])/3<180){ink=true;break}}
+  if(ink){if(start<0)start=x;else if(x-last>Math.max(4,height*.8)){spans.push([start,last+1]);start=x}last=x;}
+ }
+ if(start>=0)spans.push([start,last+1]);
+ return spans.length>=4&&spans.length<=20?spans.map(([a,b])=>[Math.max(0,a-1),top,Math.min(width,b+1),bottom]):[];
+}
+export function verifiedNumericRow(candidate,parts,threshold=.9){
+ const expected=candidate.trim().split(/\s+/);
+ if(expected.length<4||expected.length!==parts.length||parts.some((p,i)=>p.verdict!=='scored'||!Number.isFinite(p.score)||p.score<threshold||p.score>1||!/^\d+(?:[,.]\d+)*$/.test(p.text.trim())||p.text.trim()!==expected[i]))return null;
+ return parts.map(p=>p.text.trim()).join(' ');
+}
+
+export function numericEvidenceResult(part,evidence,threshold=.9){
+ const passed=!!verifiedNumericRow(part.text,evidence,threshold);
+ return {...part,tickEvidence:evidence,rowScore:part.rowScore??part.score,tickConflict:!passed,score:passed?Math.min(...evidence.map(p=>p.score)):null,verdict:passed?'scored':'unverified',imageTransform:'independent-numeric-ticks'};
+}
