@@ -50,7 +50,7 @@ export function detailBoxes(width,height,rgba,{figure=false}={}){
  // Large noisy figures are left for review instead of unbounded inference.
  return boxes.length<=80?boxes:[];
 }
-export function detailVersion(words,threshold){let hash=2166136261;for(const c of [...words].sort().join('|'))hash=Math.imul(hash^c.charCodeAt(0),16777619);return `2:${threshold}:${hash>>>0}`}
+export function detailVersion(words,threshold){let hash=2166136261;for(const c of [...words].sort().join('|'))hash=Math.imul(hash^c.charCodeAt(0),16777619);return `3:${threshold}:${hash>>>0}`}
 // Only transfer independently verified letter-to-letter SQL identifier separators.
 // Digits, operators, quotes and the remaining source characters must match exactly.
 export function patchVerifiedDetails(source,parts,threshold=.9){
@@ -91,4 +91,24 @@ export function patchVerifiedScales(source,parts,threshold=.9){
   if(supporting.length===occurrences&&supporting.every(a=>a.join(' ')===supporting[0].join(' ')))replacements.set(line,supporting[0].join(' '));
  }
  return lines.map(l=>replacements.get(l)||l).join('\n');
+}
+
+// Only a physical line-ending hyphen may be joined. Every reread line must
+// independently pass, and the resulting text must differ only by such joins.
+export function verifiedLineJoin(source,parts,words,threshold=.9){
+ if(isCode(source)||parts.length<2||parts.some(p=>p.verdict!=='scored'||!Number.isFinite(p.score)||p.score<threshold||p.score>1))return null;
+ let result=source,changed=false;
+ for(let i=0;i<parts.length-1;i++){
+  const a=parts[i],b=parts[i+1],left=a.text.match(/([A-Za-z]{2,})-$/),right=b.text.match(/^([a-z]{2,})/);
+  if(!left||!right||!a.bbox||!b.bbox)continue;
+  const ah=a.bbox[3]-a.bbox[1],bh=b.bbox[3]-b.bbox[1],gap=b.bbox[1]-a.bbox[3];
+  const overlap=Math.min(a.bbox[2],b.bbox[2])-Math.max(a.bbox[0],b.bbox[0]);
+  if(gap<0||gap>Math.max(ah,bh)*1.5||overlap<Math.min(a.bbox[2]-a.bbox[0],b.bbox[2]-b.bbox[0])*.5)continue;
+  const word=left[1]+right[1];if(!words.has(word.toLowerCase())&&!words.has(word.toLowerCase()+'s'))continue;
+  const pattern=new RegExp('\\b'+left[1]+'-\\s*'+right[1]+'\\b','g'),matches=[...result.matchAll(pattern)];
+  if(matches.length!==1)continue;
+  result=result.replace(pattern,word);changed=true;
+ }
+ const norm=t=>t.replace(/\s+/g,' ').trim();
+ return changed&&norm(result)===norm(joinReread(parts,words))?result:null;
 }

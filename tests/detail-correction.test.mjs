@@ -65,3 +65,13 @@ test('scales are copied only from matching verified image rows, never extrapolat
 test('token verification cannot authorize punctuation elsewhere in its line',()=>{assert.equal(patchVerifiedDetails('SELECT goodname,badname FROM t',[{text:'SELECT good_name,bad_name FROM t',tokenEvidence:{text:'good_name'},score:.99,verdict:'scored'}]),'SELECT good_name,badname FROM t')});
 test('chart evidence already present or duplicated cannot repair another chart',()=>{const p={bbox:[0,0,100,10],text:'0 50 100 150',score:.99,verdict:'scored'},s='50 100 150 200';assert.equal(patchVerifiedScales('50 100 150 200\n0 50 100 150 200',[{...p,text:'0 50 100 150 200'}]),'50 100 150 200\n0 50 100 150 200');assert.equal(patchVerifiedScales(s+'\n'+s,[{...p,text:'0 '+s},{...p,text:'0 '+s}]),s+'\n'+s)});
 test('single line glyphs survive component filtering',()=>{const p=new Uint8Array(100*30*4).fill(255);for(let y=8;y<20;y++)for(let x=10;x<18;x++){const i=(y*100+x)*4;p[i]=p[i+1]=p[i+2]=0}assert.equal(detailBoxes(100,30,p).length,1)});
+import {verifiedLineJoin} from '../frontend/dist/detail-correction.mjs';
+test('physical line-end join uses independently verified lines and document evidence',()=>{
+ const part=(text,y,score=.99)=>({text,bbox:[0,y,200,y+15],score,verdict:'scored'}),words=wordEvidence(['pushdowns']);
+ assert.equal(verifiedLineJoin('LIMIT push-down continues.',[part('LIMIT push-',0),part('down continues.',20)],words),'LIMIT pushdown continues.');
+ assert.equal(verifiedLineJoin('LIMIT push-down continues.',[part('LIMIT push-',0),part('down continues.',20,.89)],words),null);
+ assert.equal(verifiedLineJoin('Please re-sign now.',[part('Please re-sign now.',0)],wordEvidence(['resign'])),null);
+ assert.equal(verifiedLineJoin('LIMIT push-down continues.',[part('LIMIT push-',0),part('down continues.',200)],words),null);
+});
+
+test('line joins never delete SQL subtraction',()=>assert.equal(verifiedLineJoin('SELECT income-tax FROM payroll;',[{text:'SELECT income-',bbox:[0,0,200,15],score:.99,verdict:'scored'},{text:'tax FROM payroll;',bbox:[0,20,200,35],score:.99,verdict:'scored'}],wordEvidence(['incometax'])),null));

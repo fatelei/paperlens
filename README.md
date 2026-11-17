@@ -1,6 +1,6 @@
 # PaperLens
 
-本地桌面 OCR 与文档复核工具。Go + Wails，使用 MiniCPM-OCR 1.0 识别、独立 MiniCPM-OCR-Jev 模型核验，支持 macOS Apple Silicon 和 Windows x64。当前版本：0.5.8（预览版）。
+本地桌面 OCR 与文档复核工具。Go + Wails，使用 MiniCPM-OCR 1.0 识别、独立 MiniCPM-OCR-Jev 模型核验，支持 macOS Apple Silicon 和 Windows x64。当前版本：0.5.9（预览版）。
 
 ## 使用流程
 
@@ -69,3 +69,8 @@ OCR/Jev 使用 OpenBMB MiniCPM-OCR 系列；独立核验 SDK 固定于提交 `f5
 对代码、图表和文档词汇支持的可疑断词追加小块复读。断词候选需独立逐行识别支持并通过 Jev；SQL 点号/下划线只从核验通过的小块迁移，部分修正仍标待复核。图表尝试提取孤立数字与文字标签，不按等差规律猜补刻度。整段替换需要原文字覆盖及逐块、整段核验均通过。失败记录与候选可在 JSON 导出中审计；人工编辑仍优先。
 
 GitHub Actions 在 main 推送、PR 和手动触发时运行 Go race、前端与布局单元测试、浏览器交互测试，再构建 macOS Apple Silicon 和 Windows x64，保留下载产物 14 天。构建包不含模型、不做公证或发行签名。配置见 [.github/workflows/ci.yml](.github/workflows/ci.yml)。
+
+
+## 0.5.9 小字号与换行核验
+
+细节 OCR 与 Jev 使用同一固定等比例放大和白边输入，小字号不再直接用紧贴字形的原始裁剪评分；审计仍保留原始裁剪分数。复核阈值未降低。普通正文的物理行末断词可依据相邻位置、文档词汇及逐行核验作局部修正；SQL 减号和行内连字符不进入此路径。局部修正不代表整段通过，人工修改仍优先。

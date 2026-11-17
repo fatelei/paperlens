@@ -29,7 +29,7 @@ func main() {
 		OnStartup:        app.startup, OnShutdown: app.shutdown, Bind: []interface{}{app},
 		Menu:        appMenu,
 		DragAndDrop: &options.DragAndDrop{EnableFileDrop: true, DisableWebViewDrop: true},
-		Mac:         &mac.Options{About: &mac.AboutInfo{Title: "PaperLens", Message: "本地 OCR · 独立核验\n0.5.8 Preview"}},
+		Mac:         &mac.Options{About: &mac.AboutInfo{Title: "PaperLens", Message: "本地 OCR · 独立核验\n0.5.9 Preview"}},
 	})
 	if err != nil {
 		log.Fatal(err)

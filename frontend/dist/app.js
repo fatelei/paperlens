@@ -1,4 +1,4 @@
-import {wordEvidence,joinCandidates,detailBoxes,isCode,detailRequired,detailVersion,patchVerifiedDetails,supportedJoin,joinReread,sqlPunctuationCandidates,patchVerifiedScales} from './detail-correction.mjs';
+import {wordEvidence,joinCandidates,detailBoxes,isCode,detailRequired,detailVersion,patchVerifiedDetails,verifiedLineJoin,joinReread,sqlPunctuationCandidates,patchVerifiedScales} from './detail-correction.mjs';
 import {recordReview,lastReview,undoLastReview} from './review-history.mjs';
 import {splitRaster} from './segments.mjs';
 import {correctRegion,uncoveredRegions,acceptedCorrection,auditDetails,detailPending} from './correction.mjs';
@@ -266,7 +266,7 @@ async function setupTask(method,...args){
 }
 bind('download-models',()=>setupTask('DownloadModels',$('download-source').value));bind('install-engine',()=>setupTask('InstallEngine'));
 bind('clear-data',async()=>{if(state.busy)return;if(!await confirmAction('清空本机文档库？','所有导入文档与未导出的编辑结果都会被删除。模型文件和设置保留。'))return;clearTimeout(saveTimer);if(state.db)await new Promise((resolve,reject)=>{const tx=state.db.transaction('documents','readwrite');tx.objectStore('documents').clear();tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});state.docs=[];state.docId=null;$('settings').close();render();toast('文档库已清空')});
-bind('sample',async()=>{const canvas=document.createElement('canvas');canvas.width=1200;canvas.height=1600;const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,1200,1600);ctx.fillStyle='#213d33';ctx.font='42px serif';ctx.fillText('PaperLens 文档识别测试',100,150);ctx.font='25px sans-serif';['这是一份内置样本文档，用于测试本地 OCR。','你可以识别整页，也可以框选下面的文字区域。','','项目名称：文档数字化工具','版本：0.5.8','日期：2026 年 11 月 16 日','','识别后可以编辑文字、复制内容或导出文件。','核验由本机 MiniCPM-OCR-Jev 独立模型完成。','','English recognition sample:','Make every document editable.','Total: 128.00 CNY'].forEach((line,i)=>ctx.fillText(line,100,270+i*65));const doc={id:id(),name:'内置测试文档.png',createdAt:Date.now(),pages:[pageFromCanvas(canvas)]};state.docs.push(doc);state.docId=doc.id;state.page=0;state.region=0;persist();render()});
+bind('sample',async()=>{const canvas=document.createElement('canvas');canvas.width=1200;canvas.height=1600;const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,1200,1600);ctx.fillStyle='#213d33';ctx.font='42px serif';ctx.fillText('PaperLens 文档识别测试',100,150);ctx.font='25px sans-serif';['这是一份内置样本文档，用于测试本地 OCR。','你可以识别整页，也可以框选下面的文字区域。','','项目名称：文档数字化工具','版本：0.5.9','日期：2026 年 11 月 16 日','','识别后可以编辑文字、复制内容或导出文件。','核验由本机 MiniCPM-OCR-Jev 独立模型完成。','','English recognition sample:','Make every document editable.','Total: 128.00 CNY'].forEach((line,i)=>ctx.fillText(line,100,270+i*65));const doc={id:id(),name:'内置测试文档.png',createdAt:Date.now(),pages:[pageFromCanvas(canvas)]};state.docs.push(doc);state.docId=doc.id;state.page=0;state.region=0;persist();render()});
 $('browser-files').addEventListener('change',async e=>{const chosen=[...e.target.files];e.target.value='';await runImport(async()=>{const files=[];for(const f of chosen){if(f.size>80*1024*1024)throw new Error('单文件不能超过 80MB');const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=reject;reader.readAsDataURL(f)});files.push({name:f.name,mime:f.type,data})}await importFiles(files)},'导入文档…')});
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='o'){e.preventDefault();chooseDocuments().catch(error)}if(e.key==='Escape'&&state.cropping)toggleCrop()});
 async function init(){try{state.docs=migrateLocalScores(await loadDB());state.docs.sort((a,b)=>a.createdAt-b.createdAt);state.docId=state.docs.at(-1)?.id||null}catch(e){toast('无法恢复本机文档：'+e.message)}if(native()){state.settings=await call('GetSettings');window.runtime?.EventsOn('engine-progress',p=>{$('download-progress').value=p.percent;$('download-message').textContent=p.message;$('status').textContent=p.message;if(/退出/.test(p.message))checkEngine().catch(()=>{})});window.runtime?.OnFileDrop((x,y,paths)=>{runImport(async()=>importFiles(await call('ReadDocuments',paths)))},true);checkEngine().catch(()=>{})}render()}
@@ -365,7 +365,13 @@ bind('undo-review',()=>{if(navigationLocked())return;const doc=activeDoc(),last=
 async function refineDetails(page,r,words){
  const threshold=state.settings.threshold??.9,joined=joinCandidates(r.text,words);
  await ensureLocalJev();
- const verifyText=async(text,part=r)=>{if(state.cancelled)throw Error('已取消');return call('Verify',await croppedData(page,part),text,'text','')};
+ const verifyText=async(text,part=r)=>{if(state.cancelled)throw Error('已取消');
+  const raw=await call('Verify',await croppedData(page,part),text,'text','');
+  // Fixed normalization matches the OCR input: original pixels, uniform scale,
+  // white margin. No threshold search, sharpening, glyph removal or rewriting.
+  if(part!==r&&part.bbox[3]-part.bbox[1]<40){const normalized=await call('Verify',await detailImage(page,part),text,'text','');return {...normalized,rawScore:raw.score,rawVerdict:raw.verdict,imageTransform:'uniform-scale-white-margin'};}
+  return raw;
+ };
 
  const image=await imageFromURL('data:image/png;base64,'+await croppedData(page,r)),canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);
  const figure=r.layoutLabel==='figure'&&!isCode(r.text);
@@ -386,6 +392,8 @@ async function refineDetails(page,r,words){
  const coverage=1-missing/Math.max(1,tokens(base).length),whole=await verifyText(text);
  const allPass=parts.every(p=>p.verdict==='scored'&&Number.isFinite(p.score)&&p.score>=threshold&&p.score<=1);
  const accepted=coverage===1&&allPass&&whole.verdict==='scored'&&whole.score>=threshold&&whole.score<=1;
+ const physicalJoin=!figure&&!isCode(base)?verifiedLineJoin(base,parts,words,threshold):null;
+ if(!accepted&&physicalJoin)return {accepted:true,partial:true,text:physicalJoin,parts,score:Math.min(...parts.map(p=>p.score)),verdict:'scored',wholeScore:whole.score,reason:'已按相邻文字行和文档词汇修正换行断词；逐行核验通过，整段仍待复核'};
  const patches=[];
  if(isCode(r.text))for(const part of parts){
   for(const candidate of sqlPunctuationCandidates(part.text,r.text)){const v=await verifyText(candidate,part);if(v.verdict==='scored'&&v.score>=threshold&&v.score<=1)patches.push({...part,text:candidate,...v});}
@@ -400,7 +408,7 @@ async function refineDetails(page,r,words){
  if(!accepted&&figure){const patched=patchVerifiedScales(base,parts,threshold);if(patched!==base)return {accepted:true,partial:true,text:patched,parts:[...parts,...patches],score:Math.min(...[...parts,...patches].filter(p=>p.verdict==='scored'&&p.score>=threshold).map(p=>p.score)),verdict:'scored',reason:'已补入图像小块直接识别且核验通过的刻度，图表仍待复核'};}
 
  if(!accepted&&isCode(r.text)){const patched=patchVerifiedDetails(base,[...parts,...patches],threshold);if(patched!==base)return {accepted:true,partial:true,text:patched,parts:[...parts,...patches],score:Math.min(...[...parts,...patches].filter(p=>p.verdict==='scored'&&p.score>=threshold).map(p=>p.score)),verdict:'scored',reason:'已修正通过小块核验的 SQL 标点；其余内容仍待复核'};}
- return {accepted,text,parts,coverage,score:allPass?Math.min(...parts.map(p=>p.score)):whole.score,verdict:'scored',reason:accepted?'小块复读逐块核验通过':`细节复读仍有不一致（${parts.filter(p=>p.score<threshold||p.verdict!=='scored').length} 个小块）；保留候选和原文待复核`};
+ return {accepted,text,parts,coverage,wholeScore:whole.score,score:allPass?Math.min(...parts.map(p=>p.score)):whole.score,verdict:'scored',reason:accepted?'小块复读逐块核验通过':`细节复读仍有不一致（${parts.filter(p=>p.score<threshold||p.verdict!=='scored').length} 个小块；整段分数 ${Number.isFinite(whole.score)?whole.score.toFixed(3):'不可用'}）；保留候选和原文待复核`};
 }
 async function detailImage(page,part){
  const image=await imageFromURL('data:image/png;base64,'+await croppedData(page,part)),scale=Math.min(3,1800/image.width),pad=24,canvas=document.createElement('canvas');
