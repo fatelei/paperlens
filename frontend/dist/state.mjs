@@ -16,7 +16,7 @@ export function scoreLabel(region, threshold) {
  return {label:'未核验',kind:''};
 }
 export function exportDocument(doc, format) {
- const pages = doc.pages.map((page,index)=>({page:index+1,width:page.width,height:page.height,regions:page.regions.map(r=>({id:r.id,auto:!!r.auto,aggregate:!!r.aggregate,type:r.category,bbox:r.bbox,text:r.text,originalText:r.originalText||'',previousText:r.previousText||'',layoutLabel:r.layoutLabel||'',score:r.verdict==='scored'?r.score:null,verdict:r.verdict||'unverified',reviewed:!!r.reviewed,reviewReopened:!!r.reviewReopened,manualEdited:!!r.manualEdited,model:r.model||'',verificationModel:r.verificationModel||'',error:r.error||'',detail:r.detail||''}))}));
+ const pages = doc.pages.map((page,index)=>({page:index+1,width:page.width,height:page.height,regions:page.regions.map(r=>({id:r.id,auto:!!r.auto,aggregate:!!r.aggregate,type:r.category,bbox:r.bbox,text:r.text,originalText:r.originalText||'',previousText:r.previousText||'',layoutLabel:r.layoutLabel||'',score:r.verdict==='scored'?r.score:null,verdict:r.verdict||'unverified',reviewed:!!r.reviewed,reviewReopened:!!r.reviewReopened,manualEdited:!!r.manualEdited,model:r.model||'',verificationModel:r.verificationModel||'',error:r.error||'',detail:r.detail||'',detailAudit:r.detailAudit||null}))}));
  if(format==='json')return JSON.stringify({schema:'paperlens/1',name:doc.name,exportedAt:new Date().toISOString(),pages},null,2);
  // Whole-page OCR is the canonical transcription. Crops are additional review
  // candidates, not automatic replacements without text alignment.

@@ -1,6 +1,6 @@
 import {acceptedCorrection,effectiveResult,validScore} from './correction.mjs';
 // PDF-backed proofreading is separate from OCR. Scores always belong to raw OCR.
-export function proofSignature(page){return JSON.stringify(page.regions.map(r=>[r.id,r.text,r.revision,r.category,r.reviewed,r.bbox,r.score,r.verdict,r.correction,r.error,r.manualEdited,r.reviewReopened]).concat([page.scanAudit,page.correctionThreshold]))}
+export function proofSignature(page){return JSON.stringify(page.regions.map(r=>[r.id,r.text,r.revision,r.category,r.reviewed,r.bbox,r.score,r.verdict,r.correction,r.error,r.manualEdited,r.reviewReopened,r.detailAudit]).concat([page.scanAudit,page.correctionThreshold]))}
 const rectArea=b=>Math.max(0,b[2]-b[0])*Math.max(0,b[3]-b[1]);
 function overlap(a,b){return Math.max(0,Math.min(a[2],b[2])-Math.max(a[0],b[0]))*Math.max(0,Math.min(a[3],b[3])-Math.max(a[1],b[1]))}
 export function readingOrder(items,gap=12){
@@ -86,7 +86,7 @@ function scanProof(page,signature){
  let unresolved=0;const changes=[],parts=[];
  for(const r of regions){const manual=!!r.manualEdited||!!r.reviewed||(!!r.originalText&&r.text!==r.originalText),c=manual?null:acceptedCorrection(r),result=effectiveResult(r);if(!r.reviewed&&(r.reviewReopened||!validScore(result)||result.score<threshold))unresolved++;
   if(manual&&r.originalText!==undefined&&r.text!==r.originalText)changes.push({regionId:r.id,bbox:r.bbox,before:r.originalText,after:r.text,kind:'replace',basis:r.reviewed?'人工修改并确认':'人工修改（尚未复核）'});
-  if(c&&c.text!==r.text)changes.push({regionId:r.id,bbox:r.bbox,before:r.text,after:c.text,kind:'replace',basis:c.partial?'独立核验通过的末尾遗漏片段（原区域仍待复核）':'重识别 + 本地 Jev 再核验',score:c.score});
+  if(c&&c.text!==r.text)changes.push({regionId:r.id,bbox:r.bbox,before:r.text,after:c.text,kind:'replace',basis:c.partial?(c.detail?'小块核验支持的标点修正（其余内容仍待复核）':'独立核验通过的末尾遗漏片段（原区域仍待复核）'):'重识别 + 本地 Jev 再核验',score:c.score});
   if(r.recovered)changes.push({regionId:r.id,bbox:r.bbox,before:'',after:result.text,kind:'insert',basis:'分块版面检测补回',score:result.score});
   parts.push({bbox:r.bbox,text:result.text,regionId:r.id,source:manual?'manual':c?'local-retry':'ocr',humanReviewed:!!r.reviewed,score:validScore(result)?result.score:null});
  }

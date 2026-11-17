@@ -1,6 +1,6 @@
 # PaperLens
 
-本地桌面 OCR 与文档复核工具。Go + Wails，使用 MiniCPM-OCR 1.0 识别、独立 MiniCPM-OCR-Jev 模型核验，支持 macOS Apple Silicon 和 Windows x64。当前版本：0.5.7（预览版）。
+本地桌面 OCR 与文档复核工具。Go + Wails，使用 MiniCPM-OCR 1.0 识别、独立 MiniCPM-OCR-Jev 模型核验，支持 macOS Apple Silicon 和 Windows x64。当前版本：0.5.8（预览版）。
 
 ## 使用流程
 
@@ -63,3 +63,9 @@ PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs node tests/workflow-ui.
 ## 第三方来源
 
 OCR/Jev 使用 OpenBMB MiniCPM-OCR 系列；独立核验 SDK 固定于提交 `f5357c72e1605698fa857d74222c0414ca369ae3`，副本与许可证保留于 `local_jev/service/`。Wails、llama.cpp、PDF.js、字体及相关组件的许可分别遵循其上游许可；第三方许可文件随对应目录保留。模型的下载与使用须遵守其模型卡许可。
+
+## 0.5.8 细节校对
+
+对代码、图表和文档词汇支持的可疑断词追加小块复读。断词候选需独立逐行识别支持并通过 Jev；SQL 点号/下划线只从核验通过的小块迁移，部分修正仍标待复核。图表尝试提取孤立数字与文字标签，不按等差规律猜补刻度。整段替换需要原文字覆盖及逐块、整段核验均通过。失败记录与候选可在 JSON 导出中审计；人工编辑仍优先。
+
+GitHub Actions 在 main 推送、PR 和手动触发时运行 Go race、前端与布局单元测试、浏览器交互测试，再构建 macOS Apple Silicon 和 Windows x64，保留下载产物 14 天。构建包不含模型、不做公证或发行签名。配置见 [.github/workflows/ci.yml](.github/workflows/ci.yml)。

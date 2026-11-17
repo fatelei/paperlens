@@ -1,0 +1,74 @@
+name: Test and build
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+      - run: go test -tags webkit2_41 -race ./...
+      - run: npm test
+      - run: pip install Pillow
+      - run: python tests/layout_test.py
+      - name: Browser interaction tests
+        run: |
+          npm install --no-save --package-lock=false playwright@1.56.1
+          npx playwright install --with-deps chrome
+          for test in ui scan-ui review-ui settings-ui workflow-ui; do node "tests/$test.mjs"; done
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build macOS Apple Silicon
+        if: runner.os == 'macOS'
+        run: |
+          sh scripts/build-macos.sh
+          ditto -c -k --sequesterRsrc --keepParent build/bin/PaperLens.app build/PaperLens-macOS-arm64.zip
+      - name: Build Windows x64
+        if: runner.os == 'Windows'
+        shell: bash
+        run: sh scripts/build-windows.sh
+      - name: Upload macOS app
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PaperLens-macOS-arm64
+          path: build/PaperLens-macOS-arm64.zip
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload Windows executable
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PaperLens-Windows-x64
+          path: build/windows/*.exe
+          if-no-files-found: error
+          retention-days: 14

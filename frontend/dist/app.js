@@ -1,6 +1,7 @@
+import {wordEvidence,joinCandidates,detailBoxes,isCode,detailRequired,detailVersion,patchVerifiedDetails} from './detail-correction.mjs';
 import {recordReview,lastReview,undoLastReview} from './review-history.mjs';
 import {splitRaster} from './segments.mjs';
-import {correctRegion,uncoveredRegions,acceptedCorrection} from './correction.mjs';
+import {correctRegion,uncoveredRegions,acceptedCorrection,auditDetails,detailPending} from './correction.mjs';
 import {extractReference,currentProof,exportProof} from './proofread.mjs';
 import {changeText,invalidate,scoreLabel,exportDocument,normalizedBox,migrateLocalScores,reviewIssues,needsReview,mergeSegments} from './state.mjs';
 const $=id=>document.getElementById(id);
@@ -75,8 +76,8 @@ function renderResult(){
  const proofMode=$('output-version').value==='proof',proof=proofMode?currentProof(page):null;const shown=proofMode&&proof.status!=='unavailable'?(region.aggregate||region===page.regions[0]?proof.text:proof.parts?.find(p=>p.regionId===region.id)?.text??region.text):region.text;
  $('result-title').textContent=proofMode?'校对结果':'原始 OCR';$('editor-label').textContent=proofMode?'校对后的文字，只读':'识别文字，可直接编辑';$('editor').setAttribute('aria-label',proofMode?'校对后的文字，只读':'原始识别文字，可编辑');$('editor').value=shown;$('category').value=region.category;$('char-count').textContent=`${shown.length} 字符`;$('edit-state').textContent=proofMode?(proof.status==='unavailable'?'校对尚未完成 · 暂示原始 OCR':'校对版 · 切换原始 OCR 可编辑'):region.aggregate?'按阅读顺序合并 · 点击段落可编辑':region.reviewed?'已人工确认':region.originalText&&region.text!==region.originalText?'已修改 · 需重新核验':'可直接编辑';
  $('delete-region').hidden=proofMode||state.region===0;$('recognize').textContent=region.text?'重新识别':'开始识别';
- const corrected=proofMode?acceptedCorrection(region):null;const badge=corrected?{label:`${corrected.score.toFixed(3)} · ${corrected.partial?'补漏片段通过，原区域待复核':corrected.parts?'分块最低分':'校对版已核验'}`,kind:corrected.partial?'warning':'good'}:region.aggregate?{label:'逐段核验',kind:''}:state.verifyingRegion===region&&state.verifyingRevision===region.revision?{label:'核验中…',kind:''}:scoreLabel(region,state.settings.threshold??.9);$('score-badge').textContent=badge.label;$('score-badge').className='badge '+badge.kind;
- $('score-detail').textContent=corrected?(proofMode?'当前显示校对文字；点击「查看校对版」可查看修改前后对照。':'当前显示原始 OCR；切换校对版可查看修正文字。'):(region.aggregate?'全文按分区顺序合并；请选择段落查看独立评分。':'')||region.error||region.detail||(region.reviewed?'当前内容已由你标记为人工复核完成。':region.verdict==='scored'?'评分来自 Jev；请结合原图确认关键数字与文字。':region.category==='page'?'识别后自动核验。整页按文字一致性评分；表格、公式可框选后单独核验。':'核验在本机完成，图片与文字不会上传。');
+ const corrected=proofMode?acceptedCorrection(region):null;const badge=detailPending(region)&&!region.manualEdited&&!region.reviewed?{label:'细节待复核',kind:'warning'}:corrected?{label:`${corrected.score.toFixed(3)} · ${corrected.partial?'部分细节已修正，仍待复核':corrected.parts?'分块最低分':'校对版已核验'}`,kind:corrected.partial?'warning':'good'}:region.aggregate?{label:'逐段核验',kind:''}:state.verifyingRegion===region&&state.verifyingRevision===region.revision?{label:'核验中…',kind:''}:scoreLabel(region,state.settings.threshold??.9);$('score-badge').textContent=badge.label;$('score-badge').className='badge '+badge.kind;
+ $('score-detail').textContent=detailPending(region)&&!region.manualEdited&&!region.reviewed?(region.detailAudit.reason||'细节复读存在不一致，保留文字等待人工确认。'):corrected?(proofMode?'当前显示校对文字；点击「查看校对版」可查看修改前后对照。':'当前显示原始 OCR；切换校对版可查看修正文字。'):(region.aggregate?'全文按分区顺序合并；请选择段落查看独立评分。':'')||region.error||region.detail||(region.reviewed?'当前内容已由你标记为人工复核完成。':region.verdict==='scored'?'评分来自 Jev；请结合原图确认关键数字与文字。':region.category==='page'?'识别后自动核验。整页按文字一致性评分；表格、公式可框选后单独核验。':'核验在本机完成，图片与文字不会上传。');
  $('verify').disabled=proofMode||state.busy||region.aggregate||!region.text.trim();$('review').disabled=navigationLocked()||!region.text.trim();$('copy-current').disabled=!shown.trim()||(region.aggregate&&!page.regions.some(r=>!r.aggregate&&r.text.trim()));$('copy-current').title=shown.trim()?'复制当前显示的文字':'当前区域没有文字，请先识别';$('editor').disabled=navigationLocked();$('editor').readOnly=proofMode||navigationLocked()||!!region.aggregate;$('category').disabled=proofMode||navigationLocked()||!!region.aggregate;$('review').disabled=proofMode||navigationLocked()||!!region.aggregate||!region.text.trim();renderReviewActions();
 }
 function renderOverlays(){
@@ -265,7 +266,7 @@ async function setupTask(method,...args){
 }
 bind('download-models',()=>setupTask('DownloadModels',$('download-source').value));bind('install-engine',()=>setupTask('InstallEngine'));
 bind('clear-data',async()=>{if(state.busy)return;if(!await confirmAction('清空本机文档库？','所有导入文档与未导出的编辑结果都会被删除。模型文件和设置保留。'))return;clearTimeout(saveTimer);if(state.db)await new Promise((resolve,reject)=>{const tx=state.db.transaction('documents','readwrite');tx.objectStore('documents').clear();tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});state.docs=[];state.docId=null;$('settings').close();render();toast('文档库已清空')});
-bind('sample',async()=>{const canvas=document.createElement('canvas');canvas.width=1200;canvas.height=1600;const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,1200,1600);ctx.fillStyle='#213d33';ctx.font='42px serif';ctx.fillText('PaperLens 文档识别测试',100,150);ctx.font='25px sans-serif';['这是一份内置样本文档，用于测试本地 OCR。','你可以识别整页，也可以框选下面的文字区域。','','项目名称：文档数字化工具','版本：0.5.7','日期：2026 年 11 月 16 日','','识别后可以编辑文字、复制内容或导出文件。','核验由本机 MiniCPM-OCR-Jev 独立模型完成。','','English recognition sample:','Make every document editable.','Total: 128.00 CNY'].forEach((line,i)=>ctx.fillText(line,100,270+i*65));const doc={id:id(),name:'内置测试文档.png',createdAt:Date.now(),pages:[pageFromCanvas(canvas)]};state.docs.push(doc);state.docId=doc.id;state.page=0;state.region=0;persist();render()});
+bind('sample',async()=>{const canvas=document.createElement('canvas');canvas.width=1200;canvas.height=1600;const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,1200,1600);ctx.fillStyle='#213d33';ctx.font='42px serif';ctx.fillText('PaperLens 文档识别测试',100,150);ctx.font='25px sans-serif';['这是一份内置样本文档，用于测试本地 OCR。','你可以识别整页，也可以框选下面的文字区域。','','项目名称：文档数字化工具','版本：0.5.8','日期：2026 年 11 月 16 日','','识别后可以编辑文字、复制内容或导出文件。','核验由本机 MiniCPM-OCR-Jev 独立模型完成。','','English recognition sample:','Make every document editable.','Total: 128.00 CNY'].forEach((line,i)=>ctx.fillText(line,100,270+i*65));const doc={id:id(),name:'内置测试文档.png',createdAt:Date.now(),pages:[pageFromCanvas(canvas)]};state.docs.push(doc);state.docId=doc.id;state.page=0;state.region=0;persist();render()});
 $('browser-files').addEventListener('change',async e=>{const chosen=[...e.target.files];e.target.value='';await runImport(async()=>{const files=[];for(const f of chosen){if(f.size>80*1024*1024)throw new Error('单文件不能超过 80MB');const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=reject;reader.readAsDataURL(f)});files.push({name:f.name,mime:f.type,data})}await importFiles(files)},'导入文档…')});
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='o'){e.preventDefault();chooseDocuments().catch(error)}if(e.key==='Escape'&&state.cropping)toggleCrop()});
 async function init(){try{state.docs=migrateLocalScores(await loadDB());state.docs.sort((a,b)=>a.createdAt-b.createdAt);state.docId=state.docs.at(-1)?.id||null}catch(e){toast('无法恢复本机文档：'+e.message)}if(native()){state.settings=await call('GetSettings');window.runtime?.EventsOn('engine-progress',p=>{$('download-progress').value=p.percent;$('download-message').textContent=p.message;$('status').textContent=p.message;if(/退出/.test(p.message))checkEngine().catch(()=>{})});window.runtime?.OnFileDrop((x,y,paths)=>{runImport(async()=>importFiles(await call('ReadDocuments',paths)))},true);checkEngine().catch(()=>{})}render()}
@@ -294,7 +295,10 @@ async function retryRegion(page,r){
   verify:async(text,candidate)=>{await ensureLocalJev();if(state.cancelled)throw Error('已取消');const whole=await call('Verify',await croppedData(page,r),text,r.category==='page'?'text':r.category,'');if(whole.score>=(state.settings.threshold??.9)||!candidate.parts)return whole;const parts=[];for(const part of candidate.parts){if(state.cancelled)throw Error('已取消');const v=await call('Verify',await croppedData(page,part),part.text,'text','');parts.push({...part,...v});}const threshold=state.settings.threshold??.9;const allPass=parts.every(p=>p.verdict==='scored'&&Number.isFinite(p.score)&&p.score>=threshold&&p.score<=1);if(allPass)return {score:Math.min(...parts.map(p=>p.score)),verdict:'scored',parts};
    const originalWords=new Set((r.text.toLowerCase().match(/[\p{L}\p{N}]+/gu)||[]));const additions=parts.filter(p=>{const words=p.text.toLowerCase().match(/[\p{L}\p{N}]+/gu)||[],novel=words.filter(w=>!originalWords.has(w));return p.verdict==='scored'&&p.score>=threshold&&p.score<=1&&p.bbox[1]>=r.bbox[1]+(r.bbox[3]-r.bbox[1])*.65&&p.bbox[3]-p.bbox[1]<=(r.bbox[3]-r.bbox[1])*.35&&new Set(novel).size>=3&&novel.length/Math.max(1,words.length)>.4});
    if(additions.length)return {score:Math.min(...additions.map(p=>p.score)),verdict:'scored',parts:additions,partial:true,replacementText:r.text+'\n\n'+additions.map(p=>p.text).join('\n\n')};return whole;}
- })}finally{state.correcting=false;persist();render()}
+ });
+ const words=wordEvidence(owner.pages.flatMap(p=>p.regions.filter(x=>!x.aggregate).map(x=>x.text)));
+ if(detailRequired(r,words))await auditDetails(r,{current:()=>state.docs.includes(owner)&&page.regions.includes(r),cancelled:()=>state.cancelled,version:detailVersion(words,state.settings.threshold??.9),refine:()=>refineDetails(page,r,words)});
+ }finally{state.correcting=false;persist();render()}
 }
 async function correctDocument(){
  const doc=activeDoc();if(!doc||state.busy)return;
@@ -357,3 +361,35 @@ function renderReviewActions(){
 bind('enter-review',()=>{const target=reviewTarget();if(target!==null)selectReviewRegion(state.page,target,true)});
 
 bind('undo-review',()=>{if(navigationLocked())return;const doc=activeDoc(),last=undoLastReview(doc);if(!last){toast('当前文档没有可撤销的复核记录');renderReviewActions();return;}currentProof(doc.pages[last.pageIndex]);persist();selectReviewRegion(last.pageIndex,last.regionIndex,true);toast('已撤销上一次复核，已返回原段落；修改后的文字保留');notifyWork('已撤销上一次复核，已返回原段落；修改后的文字保留，请重新确认。','warning');});
+
+async function refineDetails(page,r,words){
+ const threshold=state.settings.threshold??.9,joined=joinCandidates(r.text,words);
+ await ensureLocalJev();
+ const verifyText=async(text,part=r)=>{if(state.cancelled)throw Error('已取消');return call('Verify',await croppedData(page,part),text,'text','')};
+
+ const image=await imageFromURL('data:image/png;base64,'+await croppedData(page,r)),canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);
+ const figure=r.layoutLabel==='figure'&&!isCode(r.text);
+ const boxes=detailBoxes(canvas.width,canvas.height,ctx.getImageData(0,0,canvas.width,canvas.height).data,{figure});
+ if(!boxes.length)throw Error('未找到可靠的文字小块，保留原文待复核');
+ const parts=[];
+ for(let i=0;i<boxes.length;i++){
+  if(state.cancelled)throw Error('已取消');$('status').textContent=`自动校对：细节复读 ${i+1}/${boxes.length}（标点、断词与刻度）`;
+  const b=boxes[i],part={bbox:[b[0]+r.bbox[0],b[1]+r.bbox[1],b[2]+r.bbox[0],b[3]+r.bbox[1]]};
+  const result=await call('Recognize',await detailImage(page,part),'text');const score=await verifyText(result.text,part);parts.push({...part,text:result.text,...score});
+ }
+ if(joined&&parts.map(p=>p.text).join('\n').replace(/([A-Za-z])-\n([a-z])/g,'$1$2').replace(/\s+/g,' ').includes(joined.replace(/\s+/g,' '))){const score=await verifyText(joined);if(score.verdict==='scored'&&score.score>=threshold&&score.score<=1)return {...score,accepted:true,text:joined,reason:'断词候选经独立逐行复读及 Jev 核验'};}
+ const text=parts.map(p=>p.text).join(isCode(r.text)||figure?'\n':' '),base=acceptedCorrection(r)?.text||r.text;
+ // A small crop can lose context: no wholesale replacement when source words
+ // disappear. Punctuation is checked separately by the image verifier.
+ const tokens=t=>(t.toLowerCase().replace(/([a-z])-\s*([a-z])/g,'$1$2').match(/[\p{L}\p{N}]+/gu)||[]),remaining=tokens(text);let missing=0;
+ for(const word of tokens(base)){const index=remaining.indexOf(word);if(index<0)missing++;else remaining.splice(index,1)}
+ const coverage=1-missing/Math.max(1,tokens(base).length),whole=await verifyText(text);
+ const allPass=parts.every(p=>p.verdict==='scored'&&Number.isFinite(p.score)&&p.score>=threshold&&p.score<=1);
+ const accepted=coverage===1&&allPass&&whole.verdict==='scored'&&whole.score>=threshold&&whole.score<=1;
+ if(!accepted&&isCode(r.text)){const patched=patchVerifiedDetails(base,parts,threshold);if(patched!==base)return {accepted:true,partial:true,text:patched,parts,score:Math.min(...parts.filter(p=>p.verdict==='scored'&&p.score>=threshold).map(p=>p.score)),verdict:'scored',reason:'已修正通过小块核验的 SQL 标点；其余内容仍待复核'};}
+ return {accepted,text,parts,coverage,score:allPass?Math.min(...parts.map(p=>p.score)):whole.score,verdict:'scored',reason:accepted?'小块复读逐块核验通过':`细节复读仍有不一致（${parts.filter(p=>p.score<threshold||p.verdict!=='scored').length} 个小块）；保留候选和原文待复核`};
+}
+async function detailImage(page,part){
+ const image=await imageFromURL('data:image/png;base64,'+await croppedData(page,part)),scale=Math.min(3,1800/image.width),pad=24,canvas=document.createElement('canvas');
+ canvas.width=Math.round(image.width*scale)+pad*2;canvas.height=Math.round(image.height*scale)+pad*2;const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,pad,pad,image.width*scale,image.height*scale);return canvas.toDataURL('image/png').split(',')[1];
+}
