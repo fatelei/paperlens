@@ -25,3 +25,36 @@ test('SQL punctuation-only closing row stays with its statement despite narrow b
 test('prose contexts do not stop on a split word or an open quotation',()=>{const p=['One line','Another line','the user (un-','like others) ends.'].map((text,i)=>({text,bbox:[0,i*20,200,i*20+16]}));assert.equal(statementContexts(p,false)[0].end,4)});
 
 test("alignment cannot change whitespace inside multiline SQL strings",()=>{const text="SELECT 'long literal\n  spaced text';",parts=[{text:"SELECT 'long literal",bbox:[0,0,180,16]},{text:"  spaced text';",bbox:[0,20,150,36]}];assert.equal(alignedCode(text,parts),text)});
+
+import {completeTextEvidence} from '../frontend/dist/context-verification.mjs';
+test('complete text coverage uses passed rows and exact matching context for failed rows',()=>{
+ const parts=['CREATE TABLE t (','x INT',');'].map((text,i)=>({text,bbox:[0,i*20,i===2?15:150,i*20+16],score:i===2?.2:.97,verdict:'scored'}));
+ const contexts=[{start:0,end:3,matches:true,score:.94,verdict:'scored'}];
+ assert.equal(completeTextEvidence(parts,contexts),.94);
+ assert.equal(completeTextEvidence(parts,[]),null);
+ assert.equal(completeTextEvidence(parts,[{...contexts[0],matches:false}]),null);
+ assert.equal(completeTextEvidence(parts,[{...contexts[0],end:2}]),null);
+ assert.equal(completeTextEvidence(parts,[{...contexts[0],score:.899}]),null);
+ assert.equal(completeTextEvidence(parts.map((p,i)=>i===1?{...p,bbox:[250,20,400,36]}:p),contexts),null);
+ assert.equal(completeTextEvidence(parts.map((p,i)=>i===1?{...p,tokenEvidence:{}}:p),contexts),null);
+});
+
+import {inkCoverage} from '../frontend/dist/context-verification.mjs';
+import {detailBoxes} from '../frontend/dist/detail-correction.mjs';
+test('unassigned punctuation or rules prevent clearing review even if extracted lines pass',()=>{
+ const w=100,h=50,data=new Uint8ClampedArray(w*h*4).fill(255);
+ const ink=(x,y)=>{const i=(y*w+x)*4;data[i]=data[i+1]=data[i+2]=0;};
+ for(let y=5;y<15;y++)for(let x=5;x<40;x+=5){ink(x,y);ink(x+1,y);}
+ let boxes=detailBoxes(w,h,data);assert.equal(inkCoverage(w,h,data,boxes).complete,true);
+ for(let x=10;x<25;x+=5){ink(x,30);ink(x,31);}
+ boxes=detailBoxes(w,h,data);assert.equal(boxes.length,1);assert.equal(inkCoverage(w,h,data,boxes).complete,false);
+ assert.equal(inkCoverage(w,h,data,[]).complete,false);
+});
+
+test('only a separate closed frame can be explained, interior punctuation remains required',()=>{
+ const w=100,h=100,data=new Uint8ClampedArray(w*h*4).fill(255),ink=(x,y)=>{data.fill(0,(y*w+x)*4,(y*w+x)*4+3);};
+ for(let x=1;x<99;x++){ink(x,1);ink(x,98);}for(let y=1;y<99;y++){ink(1,y);ink(98,y);}ink(30,30);
+ const boxes=[[20,20,80,80]];assert.equal(inkCoverage(w,h,data,boxes).complete,false);assert.equal(inkCoverage(w,h,data,boxes,{allowFrame:true}).complete,true);
+ ink(40,85);assert.equal(inkCoverage(w,h,data,boxes,{allowFrame:true}).complete,false);
+ data.fill(255,(85*w+40)*4,(85*w+40)*4+4);data.fill(255,(1*w+1)*4,(1*w+1)*4+4);assert.equal(inkCoverage(w,h,data,boxes,{allowFrame:true}).complete,false);
+});

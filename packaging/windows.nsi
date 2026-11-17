@@ -3,7 +3,7 @@ Unicode True
 Name "PaperLens"
 Icon "icon.ico"
 UninstallIcon "icon.ico"
-OutFile "../build/windows/PaperLens-Setup-0.5.12.exe"
+OutFile "../build/windows/PaperLens-Setup-0.5.13.exe"
 InstallDir "$LOCALAPPDATA\PaperLens"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
@@ -24,7 +24,7 @@ Section "PaperLens" SEC01
  CreateShortcut "$DESKTOP\PaperLens.lnk" "$INSTDIR\PaperLens.exe"
  WriteUninstaller "$INSTDIR\Uninstall.exe"
  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PaperLens" "DisplayName" "PaperLens"
- WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PaperLens" "DisplayVersion" "0.5.12"
+ WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PaperLens" "DisplayVersion" "0.5.13"
  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PaperLens" "UninstallString" '"$INSTDIR\Uninstall.exe"'
 SectionEnd
 Section "Uninstall"
