@@ -1,0 +1,20 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {isCode} from '../frontend/dist/detail-correction.mjs';
+test('SQL mentioned inside prose is not a code block',()=>{assert.equal(isCode('This query involves “GROUP BY hour ORDER BY hour DESC LIMIT 12.” This way, it is faster.'),false);assert.equal(isCode('# comment\nSELECT loc.region FROM bus;'),true)});
+import {verificationCandidate,lineContexts,contextPasses} from '../frontend/dist/context-verification.mjs';
+test('verification formatting keeps SQL comments literal without altering source',()=>{const s='# note\nSELECT a_b FROM t;';assert.equal(verificationCandidate(s,true),'```text\n'+s+'\n```');assert.equal(verificationCandidate('- item'), '\\- item');assert.match(verificationCandidate('```',true),/^````text/)});
+test('contexts require complete adjacent same-column coverage and independent agreement',()=>{const parts=Array.from({length:5},(_,i)=>({bbox:[0,i*20,100,i*20+15],text:'line'}));const groups=lineContexts(parts).map(g=>({...g,matches:true,score:.95,verdict:'scored'}));assert.equal(contextPasses(groups,5),true);assert.equal(contextPasses(groups.slice(1),5),false);assert.equal(contextPasses(groups.map(g=>({...g,matches:false})),5),false);assert.equal(contextPasses(groups.map(g=>({...g,score:.89})),5),false);assert.deepEqual(lineContexts([parts[0],{...parts[1],bbox:[200,20,300,35]}]),[])});
+
+import {textAuditAllowed} from '../frontend/dist/context-verification.mjs';
+test('low-score structured content cannot enter prose detail auditing',()=>{for(const category of ['table','formula'])assert.equal(textAuditAllowed({category,score:0,text:'SELECT a FROM t;'}),false);assert.equal(textAuditAllowed({category:'text',score:0}),true)});
+test('context never ends at a split word when the following line is available',()=>{const lines=['a sentence','ends in lat-','est here','other line'];const g=lineContexts(lines.map((text,i)=>({text,bbox:[0,i*20,100,i*20+15]})));assert.equal(g[0].end,3)});
+import {verifiedCodeText} from '../frontend/dist/context-verification.mjs';
+test('whole SQL review needs every line and preserves all non-identifier punctuation',()=>{const p=text=>({text,score:.99,verdict:'scored'}),src="SELECT loc region FROM bus\nWHERE time > interval '1 hour';";assert.equal(verifiedCodeText(src,[p('SELECT loc.region FROM bus'),p("WHERE time > interval '1 hour';")]),"SELECT loc.region FROM bus\nWHERE time > interval '1 hour';");assert.equal(verifiedCodeText(src,[p('SELECT loc.region FROM bus')]),null);assert.equal(verifiedCodeText(src,[p('SELECT loc.region FROM bus'),p("WHERE time > interval '1 hour;")]),null);assert.equal(verifiedCodeText(src,[p('SELECT loc.region FROM bus'),{...p("WHERE time > interval '1 hour';"),score:.89}]),null)});
+
+import {patchVerifiedDetails,sameCode} from '../frontend/dist/detail-correction.mjs';
+test('SQL literal whitespace and comment boundaries remain semantic',()=>{const source="SELECT name FROM t WHERE label='a  b';",p=text=>({text,score:.99,verdict:'scored'});assert.equal(verifiedCodeText(source,[p("SELECT name FROM t WHERE label='a b';")]),null);assert.equal(patchVerifiedDetails(source,[p("SELECT name FROM t WHERE label='a b';")]),source);assert.equal(sameCode('# note\nSELECT x;', '# note SELECT x;'),false);assert.equal(patchVerifiedDetails("SELECT 'loc region' FROM t;",[p("SELECT 'loc.region' FROM t;")]),"SELECT 'loc region' FROM t;");assert.equal(patchVerifiedDetails("SELECT 'errormsg' FROM t;",[{...p('error_msg'),tokenEvidence:{text:'error_msg'}}]),"SELECT 'errormsg' FROM t;")});
+
+test("unsupported SQL dollar quotes and block comments never authorize edits",()=>{for(const source of ["SELECT $$foo bar$$;","SELECT $tag$foo bar$tag$;","SELECT /* foo bar */ x;"]){assert.equal(verifiedCodeText(source,[{text:source,score:.99,verdict:"scored"}]),null);}});
+
+test("long SQL spacing mismatch is bounded and preserves original",()=>{const source="SELECT"+" ".repeat(40)+"z FROM t;";assert.equal(patchVerifiedDetails(source,[{text:"SELECT"+" ".repeat(12)+"x_y FROM t;",score:.99,verdict:"scored"}]),source);});

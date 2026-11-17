@@ -1,5 +1,5 @@
 // Evidence comes only from the current document, never from a domain answer list.
-export const isCode=text=>/\b(?:SELECT\s|CREATE\s+TABLE|INSERT\s+INTO|GROUP\s+BY|ORDER\s+BY)\b/i.test(text);
+export const isCode=text=>/^\s*(?:SELECT\s|CREATE\s+TABLE|INSERT\s+INTO|GROUP\s+BY|ORDER\s+BY)\b/im.test(text);
 export function wordEvidence(texts){return new Set(texts.join('\n').match(/[A-Za-z]+(?:-[A-Za-z]+)*/g)?.map(w=>w.toLowerCase())||[])}
 export function joinCandidates(text,words){
  if(isCode(text))return null;
@@ -50,21 +50,39 @@ export function detailBoxes(width,height,rgba,{figure=false}={}){
  // Large noisy figures are left for review instead of unbounded inference.
  return boxes.length<=80?boxes:[];
 }
-export function detailVersion(words,threshold){let hash=2166136261;for(const c of [...words].sort().join('|'))hash=Math.imul(hash^c.charCodeAt(0),16777619);return `3:${threshold}:${hash>>>0}`}
+export function detailVersion(words,threshold){let hash=2166136261;for(const c of [...words].sort().join('|'))hash=Math.imul(hash^c.charCodeAt(0),16777619);return `4:${threshold}:${hash>>>0}`}
 // Only transfer independently verified letter-to-letter SQL identifier separators.
 // Digits, operators, quotes and the remaining source characters must match exactly.
+// SQL literals and comments are protected: whitespace inside strings is data.
+export function sqlSurface(text){
+ const mask=new Uint8Array(text.length);let plain='',protectedText='';
+ if(/\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$|\/\*/.test(text))return {mask,signature:null};
+ const flush=()=>{protectedText+=plain.replace(/\s+/g,' ');plain='';};
+ for(let i=0;i<text.length;){
+  if(text[i]==='#'||text.slice(i,i+2)==='--'){flush();let j=text.indexOf('\n',i);if(j<0)j=text.length;else j++;mask.fill(1,i,j);protectedText+='⟦'+JSON.stringify(text.slice(i,j).replace(/[ \t]+/g,' '))+'⟧';i=j;continue;}
+  if(/["'`]/.test(text[i])){flush();const quote=text[i];let j=i+1,closed=false;for(;j<text.length;j++){if(text[j]==='\\'){j++;continue;}if(text[j]===quote){if(text[j+1]===quote){j++;continue;}j++;closed=true;break;}}if(!closed)return {mask,signature:null};mask.fill(1,i,j);protectedText+='⟦'+JSON.stringify(text.slice(i,j))+'⟧';i=j;continue;}
+  plain+=text[i++];
+ }flush();return {mask,signature:protectedText.trim()};
+}
+export function sameCode(a,b){const x=sqlSurface(a).signature,y=sqlSurface(b).signature;return x!==null&&y!==null&&x===y;}
 export function patchVerifiedDetails(source,parts,threshold=.9){
  let text=source;
+ if(sqlSurface(source).signature===null)return source;
  for(const part of parts){
   if(part.verdict!=='scored'||!Number.isFinite(part.score)||part.score<threshold||part.score>1)continue;
   const candidate=(part.tokenEvidence?.text||part.text).trim();if(candidate.length<(part.tokenEvidence?3:12))continue;
-  let pattern='';
+  const protectedCandidate=sqlSurface(candidate);if(protectedCandidate.signature===null)continue;
+  const pieces=[];
   for(let i=0;i<candidate.length;i++){
-   const ch=candidate[i];
-   if((ch==='.'||ch==='_')&&/[A-Za-z]/.test(candidate[i-1]||'')&&/[A-Za-z]/.test(candidate[i+1]||'')){pattern+='[._\\s]*';continue;}
-   pattern+=/\s/.test(ch)?'\\s+':ch.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+   if(/\s/.test(candidate[i])&&!protectedCandidate.mask[i]){while(i+1<candidate.length&&/\s/.test(candidate[i+1])&&!protectedCandidate.mask[i+1])i++;pieces.push({separator:false,pattern:'\\s+'});continue;}
+   const ch=candidate[i],separator=!protectedCandidate.mask[i]&&(ch==='.'||ch==='_')&&/[A-Za-z]/.test(candidate[i-1]||'')&&/[A-Za-z]/.test(candidate[i+1]||'');
+   pieces.push({separator,ch,pattern:separator?'[._\\s]*':ch.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')});
   }
-  const matches=[...text.matchAll(new RegExp('(?<![A-Za-z0-9_])'+pattern+'(?![A-Za-z0-9_])','g'))];if(matches.length===1)text=text.slice(0,matches[0].index)+candidate+text.slice(matches[0].index+matches[0][0].length);
+  const pattern=pieces.map(p=>'('+p.pattern+')').join(''),matches=[...text.matchAll(new RegExp('(?<![A-Za-z0-9_])'+pattern+'(?![A-Za-z0-9_])','g'))];
+  if(matches.length!==1)continue;
+  const m=matches[0];if(sqlSurface(text).mask[m.index])continue;
+  const replacement=pieces.map((p,i)=>p.separator?p.ch:m[i+1]).join('');
+  text=text.slice(0,m.index)+replacement+text.slice(m.index+m[0].length);
  }
  return text;
 }
