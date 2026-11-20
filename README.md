@@ -1,103 +1,151 @@
 # PaperLens
 
-本地桌面 OCR 与文档复核工具。Go + Wails，使用 MiniCPM-OCR 1.0 识别、独立 MiniCPM-OCR-Jev 模型核验，支持 macOS Apple Silicon 和 Windows x64。当前版本：0.5.13（预览版）。
+**Local OCR, automatic proofreading, and paragraph-by-paragraph review.**
 
-## 使用流程
+PaperLens is a desktop app built with Go and Wails. It uses **MiniCPM-OCR 1.0** to recognize documents and a separate **MiniCPM-OCR-Jev** model to verify the results. Import a PDF or image, compare the source with editable text, review uncertain passages, and export the result.
 
-1. 在「模型与设置」下载 OCR 模型、安装并启动 OCR 引擎；独立核验环境按下方说明安装。
-2. 导入 PDF、PNG、JPG 或 WebP，点击「识别全部页面」。自动分栏、分段，逐段识别、核验并尝试校对低分内容。
-3. 点击「下一处待复核」进入对应段落的可编辑模式。对照左侧原图修改文字；人工确认后自动跳到下一处，可撤销上一次复核。
-4. 查看「校对版」与修改对照，复制或导出 TXT、Markdown、JSON。人工修改优先保留并同步到校对版。
+**Current version:** 0.5.13 preview · **Build targets:** macOS Apple Silicon and Windows x64
 
-「继续识别未完成内容」只补未完成段落；单页「重新识别」会确认后替换该页自动段落。识别期间可导入其他文件；任务未结束时禁止导出半成品。关闭应用会停止由应用启动的模型进程。
+The application interface is currently in Chinese. The screenshots below show the actual macOS app using a seven-page scanned document; they are not mockups or a guarantee of recognition accuracy.
 
-## 校对与限制
+![PaperLens workspace showing a scanned PDF beside its proofread text, paragraph navigation, and export controls](docs/images/workspace.jpg)
 
-- 图片和扫描件：检测遗漏区域，对低分段落有限次重识别，再由 Jev 核验候选；达标才进入校对版，原始结果保留。
-- 含可靠可见文字层的 PDF：以文字层及坐标生成独立校对版；隐藏 OCR 层不直接作为可信原文。
-- Jev 分数用于筛选区域，不是逐字准确率。较高分也可能漏字；自动分区与重识别不能保证完整或正确。重要内容仍应对照原图。
-- 人工编辑会使旧评分失效。人工复核表示使用者已检查，不是模型验证结果。
-- 文档与编辑保存在本机 WebView 的 IndexedDB。请及时导出；移动应用包路径可能改变 WebView 存储位置。
+*Source pages and recognized text stay side by side. Switch between the original OCR and proofread versions, then copy or export the full document.*
 
-## 首次安装模型
+## What you can do
 
-OCR 模型和引擎可在设置页下载。独立 Jev 核验、版面检测与渲染环境需要 Python 3.12+、Node.js 和首次联网：
+- **Recognize PDFs and images:** import PDF, PNG, JPG, and WebP files, with automatic column and paragraph segmentation.
+- **Proofread locally:** re-recognize uncertain regions and check candidate corrections with an independent verifier.
+- **Review efficiently:** jump to the next flagged paragraph, edit its text, confirm your review, and undo the last review if needed.
+- **Keep your edits:** manual changes take priority and are included in the proofread version and its exports.
+- **Export reusable text:** copy the current paragraph or full document, or export TXT, Markdown, and JSON.
+
+## Review uncertain paragraphs
+
+![PaperLens highlighting an uncertain paragraph in the source scan and opening its text for editing, with verification and manual review buttons](docs/images/paragraph-review.jpg)
+
+*“Next pending review” opens the corresponding paragraph in editable mode. Compare it with the highlighted source, make any necessary edits, and verify or confirm it. Confirming a review advances to the next issue; the previous review can be undone.*
+
+A pending review means the available evidence is insufficient for automatic confirmation. It does not necessarily mean the text is wrong. The example above intentionally retains an uncertain word split across columns.
+
+## Getting started
+
+1. **Set up the local models.** In the model settings dialog, download the OCR model, install the OCR engine, and start it. Set up the separate Jev environment using the instructions below.
+2. **Import a document.** Choose a PDF or supported image and run recognition for all pages. PaperLens segments the page and recognizes and verifies individual regions.
+3. **Run automatic proofreading.** The app checks for missed regions and attempts a limited number of re-recognition passes on uncertain content. Accepted corrections appear in the proofread version; the original OCR remains available.
+4. **Review flagged paragraphs.** Open the next pending review, compare the text with the source, and edit it as needed. Editing invalidates the previous verification score. Confirm a review only after checking the text.
+5. **Export the version you want.** Select the original OCR or proofread version and export TXT, Markdown, or JSON. Manual edits are included in the proofread output.
+
+You can import other documents while recognition runs. Resuming unfinished recognition preserves completed paragraphs and manual edits. Re-recognizing a page asks for confirmation before replacing its automatic regions. Export is disabled while a task is running. Closing the app stops model processes that it started.
+
+## First-time model setup
+
+The OCR model and engine can be downloaded from the settings dialog. The separate Jev verification, layout detection, and rendering environment requires **Python 3.12+**, **Node.js**, and an internet connection for the initial installation.
+
+From the repository root, run:
 
 ```sh
 python3 local_jev/install.py
 ```
 
-Windows 使用 `py -3 local_jev/install.py`。脚本在应用数据目录创建隔离环境，下载校验过的模型、引擎与 Chromium。安装后识别与核验无需云端 API Key。模型、运行配置及用户文档不包含在本仓库中。
+On Windows:
 
-本机数据目录：macOS 为 `~/Library/Application Support/PaperLens`，Windows 为 `%APPDATA%/PaperLens`。OCR 日志为 `engine.log`，核验日志为 `local-jev/jev.log`。服务只监听回环地址，使用临时本地令牌；核验渲染器阻止 HTTP/HTTPS 外部请求。
+```powershell
+py -3 local_jev/install.py
+```
 
-## 构建与测试
+The installer creates an isolated environment in the application data directory and downloads checksum-verified model weights and the inference engine, then installs the Python dependencies, Chromium, and layout detection components. After setup, recognition and verification run locally without a cloud API key. Model weights, runtime configuration, and user documents are not included in this repository or the application build artifacts.
 
-需要 Go 1.23+；macOS 需要 Xcode Command Line Tools，Windows 需要 WebView2 Runtime，生成 Windows 安装包还需 NSIS。前端为仓库内静态资源，无需安装 npm 依赖即可运行单元测试。
+## Data and privacy
+
+| Item | Location or behavior |
+| --- | --- |
+| macOS application data | `~/Library/Application Support/PaperLens` |
+| Windows application data | `%APPDATA%/PaperLens` |
+| OCR log | `engine.log` in the application data directory |
+| Verification log | `local-jev/jev.log` in the application data directory |
+| Documents and edits | Local WebView IndexedDB storage |
+
+Model services listen on loopback addresses and use temporary local tokens. The verification renderer blocks external HTTP and HTTPS requests. Initial installation and model downloads require network access.
+
+Export important work regularly. Moving the application bundle to another path can change which WebView storage location it uses.
+
+## How proofreading works
+
+For scans and images, PaperLens detects potentially missed regions, re-recognizes low-confidence passages, and verifies candidate corrections before applying them. For PDFs with a reliable visible text layer, it can create a separate proofread version using that layer and its coordinates. A hidden OCR layer is not automatically treated as trustworthy source text.
+
+The current verification strategy includes:
+
+- **Detailed re-reading:** inspect small text regions, SQL punctuation, and chart labels. Numeric ticks require direct image evidence; missing values are not inferred from a numeric sequence.
+- **Context-aware verification:** verify short or ambiguous lines together with their surrounding statement. SQL is rendered literally, with checks that preserve quoted whitespace and comment boundaries.
+- **Cross-column and cross-page words:** compare a joined word with the retained hyphenated form using independently recognized source windows. Words without supporting occurrences elsewhere in the document require three windows, with a genuinely expanded third window.
+- **Complete text evidence:** clear layout-related false positives only when the existing text agrees with re-reading, every line has passing evidence, and the original dark pixels are accounted for. A separate, continuous, closed SQL frame can be explained as a border; unexplained ink still blocks automatic clearance.
+
+The default review threshold is **0.90**. Word-join candidates must also exceed the retained-hyphen alternative by at least **0.05** in every required window. Partial corrections do not automatically clear a whole paragraph's review status. JSON exports retain evidence and candidate records for inspection.
+
+### Limitations
+
+- Jev scores help prioritize review; they are **not character-level accuracy percentages**. High scores can still accompany missing or incorrect text.
+- Automatic segmentation, recognition, and proofreading cannot guarantee completeness or correctness. Check important text against the original.
+- Complex charts, rotated labels, multi-column lists, and incomplete words may remain flagged for review.
+- Manual confirmation records your review; it is not a model verification result. Changes to either end of a cross-page word join invalidate that join.
+- macOS has been tested in the native app. Windows builds are available through CI, but real-device Windows validation is still pending.
+- macOS builds are ad-hoc signed and not notarized. Build artifacts do not include release signing or bundled model weights.
+
+## Build and test
+
+Requirements: **Go 1.23+** and **Node.js** for the JavaScript tests. macOS builds require Xcode Command Line Tools. Windows requires WebView2 Runtime to run the app; generating a Windows installer also requires NSIS.
+
+The frontend ships as static assets. JavaScript unit tests do not require installing npm dependencies.
 
 ```sh
 go test ./...
 npm test
+```
+
+Build for your target platform:
+
+```sh
 sh scripts/build-macos.sh
 sh scripts/build-windows.sh
 ```
 
-macOS 输出 `build/bin/PaperLens.app`；Windows 输出 `build/windows/PaperLens.exe`，检测到 NSIS 时同时生成安装包。macOS 构建为 ad-hoc 签名，未公证；Windows 尚未做真实设备验证。
+The macOS app is written to `build/bin/PaperLens.app`. The Windows executable is written to `build/windows/PaperLens.exe`; the Windows build also creates an installer when NSIS is available.
 
-浏览器交互测试使用 Playwright 和 Chrome，例如：
+Browser interaction tests require Playwright and Chrome. For example, with Playwright installed in a separate directory:
 
 ```sh
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs node tests/workflow-ui.mjs
 ```
 
-`tests/*-ui.mjs` 和 `tests/ui.mjs` 使用明确的模拟原生桥接，验证交互与故障恢复，不代表真实模型精度。`live_test.go` 等通过环境变量显式开启本地模型测试；日常测试默认跳过真实模型。
+`tests/*-ui.mjs` and `tests/ui.mjs` use an explicitly mocked native bridge to test interactions and recovery from failures. They do not measure model accuracy. Live model tests such as `live_test.go` must be explicitly enabled through environment variables and are skipped by default.
 
-## 主要目录
+[GitHub Actions](https://github.com/fatelei/paperlens/actions) runs Go race tests, JavaScript and layout tests, and browser interaction tests before building macOS Apple Silicon and Windows x64 artifacts. Runs are triggered by pushes to `main`, pull requests, and manual dispatch. Build artifacts are retained for 14 days. See the [workflow configuration](.github/workflows/ci.yml).
 
-- `app.go`、`engine.go`、`inference.go`：应用设置、模型生命周期与推理。
-- `layout.go`、`local_jev/`：版面检测、独立 Jev 安装与运行。
-- `frontend/dist/`：主界面、段落状态、校对与人工复核历史。
-- `tests/`：状态单元测试、交互回归与合成测试图片。
-- `scripts/`、`packaging/`：macOS 与 Windows 构建。
+## Project structure
 
-## 第三方来源
+| Path | Purpose |
+| --- | --- |
+| `app.go`, `engine.go`, `inference.go` | Settings, model lifecycle, and inference |
+| `layout.go`, `local_jev/` | Layout detection and independent Jev installation and runtime |
+| `frontend/dist/` | Workspace UI, paragraph state, proofreading, and review history |
+| `tests/` | Unit tests, interaction tests, and synthetic fixtures |
+| `scripts/`, `packaging/` | Platform builds and packaging |
+| `docs/images/` | Screenshots of the native application |
 
-OCR/Jev 使用 OpenBMB MiniCPM-OCR 系列；独立核验 SDK 固定于提交 `f5357c72e1605698fa857d74222c0414ca369ae3`，副本与许可证保留于 `local_jev/service/`。Wails、llama.cpp、PDF.js、字体及相关组件的许可分别遵循其上游许可；第三方许可文件随对应目录保留。模型的下载与使用须遵守其模型卡许可。
+## Recent improvements
 
-## 0.5.8 细节校对
+| Version | Changes |
+| --- | --- |
+| 0.5.13 | Complete line and image evidence can clear layout-related false positives without changing text. Novel word joins require an expanded third verification window. |
+| 0.5.12 | SQL statement context, literal-safe verification formatting, and a second window for novel cross-column or cross-page words. |
+| 0.5.11 | Cross-column and cross-page word-join evidence, paired updates in the proofread version, and invalidation after manual edits. |
+| 0.5.10 | Contextual re-reading, literal SQL rendering, and stronger protections for SQL punctuation and quoted text. |
+| 0.5.9 | Fixed scaling and margins for small text, evidence-based line-break repairs, and individual numeric-tick verification. |
+| 0.5.8 | Detailed re-reading for code, chart labels, and supported word splits, with candidate audit records. |
 
-对代码、图表和文档词汇支持的可疑断词追加小块复读。断词候选需独立逐行识别支持并通过 Jev；SQL 点号/下划线只从核验通过的小块迁移，部分修正仍标待复核。图表尝试提取孤立数字与文字标签，不按等差规律猜补刻度。整段替换需要原文字覆盖及逐块、整段核验均通过。失败记录与候选可在 JSON 导出中审计；人工编辑仍优先。
+## Third-party components
 
-GitHub Actions 在 main 推送、PR 和手动触发时运行 Go race、前端与布局单元测试、浏览器交互测试，再构建 macOS Apple Silicon 和 Windows x64，保留下载产物 14 天。构建包不含模型、不做公证或发行签名。配置见 [.github/workflows/ci.yml](.github/workflows/ci.yml)。
+Recognition and verification use the OpenBMB MiniCPM-OCR family. The independent verification SDK is pinned to commit `f5357c72e1605698fa857d74222c0414ca369ae3`; its source copy and license are retained in `local_jev/service/`.
 
-
-## 0.5.9 小字号与换行核验
-
-细节 OCR 与 Jev 使用同一固定等比例放大和白边输入，小字号不再直接用紧贴字形的原始裁剪评分；审计仍保留原始裁剪分数。复核阈值未降低。普通正文的物理行末断词可依据相邻位置、文档词汇及逐行核验作局部修正；SQL 减号和行内连字符不进入此路径。局部修正不代表整段通过，人工修改仍优先。
-
-图表数字行按共同字形高度排除相邻坐标轴碎片，再逐刻度独立识别与核验；全部数字必须与整行候选一致且均通过原阈值。数量不符、低分或字符冲突会作废旧整行高分，不按等差数列补值。
-
-
-## 0.5.10 上下文核验
-
-正文中引用 SQL 词组不再误判为代码块。独立核验按字面渲染 SQL，避免 `#` 注释被当作 Markdown 标题；渲染候选保存在审计记录，导出原文不加代码围栏。低分普通文字可联合相邻行独立复读，要求复读一致、分组完整、每组和整段都达到原阈值。表格和公式仍走结构化识别，人工修改优先。
-
-SQL 完整放行还要求所有复读行通过、原文与候选保持语义表面一致、整块再次通过。只迁移有独立证据的标识符点号/下划线；保留引号内空白和注释边界，不支持的 dollar quote / 块注释保守保留待复核。
-
-## 0.5.11 跨栏与跨页断词
-
-自动校对会检查相邻栏/页的断词。合词须在当前文档其他位置出现，且不与已出现的连字符形式冲突；两端原图独立识别与拼接图识别一致后，再比较合词与保留连字符的 Jev 分数。合词必须达到原阈值并至少领先 0.05，否则保持原文。只有校对版同时更新两端，原始 OCR 不变；任一端人工修改或修订变化使整对结果失效。部分合词通过不会清除整段待复核。记录随 JSON 导出。
-
-SQL 整块及高度不足 100 像素的短正文固定使用与小块相同的等比例缩放和白边，普通长段保留原图，记录原始裁剪结果；不在多个输入设置中择最高分。SQL 仍须全行和整块通过，失败的标点候选也保留审计。
-
-## 0.5.13 语句与双窗口核验
-
-SQL 细节按版面空行分成完整语句块，短标点行与语句一起复读；核验渲染依据原图缩进和空行，并在排版前后检查 SQL 字符串/注释语义一致，不改导出文字。正文上下文组避开换行断词及未闭合引用。
-
-没有文档内完整词旁证的跨栏/跨页合词，必须额外通过独立两行窗口核验：一行窗口、两行窗口都要独立复读一致、达到原阈值并比保留连字符至少高 0.05。冲突、失败、人工修改仍保留原文；不因局部通过清除整段待复核。
-
-### 0.5.13 完整文字证据
-
-文字与当前结果一致、原图深色像素全部被单栏文字框覆盖时，使用固定的逐行/完整语句证据判定，避免正确内容仅因整段版面低分一直待复核。未覆盖墨迹、缺行、跨栏、图表和未闭合的末尾断词仍保留复核。此路径不改写正文；所有行或其唯一对应语句均须达到原阈值。
-
-陌生跨栏合词新增具有实际扩展范围的第三上下文窗口，统一共享留白，保留全部原始字形。各窗口仍需独立复读一致、核验≥0.90且相比保留断词候选高≥0.05；没有足够证据不自动采纳。
+Wails, llama.cpp, PDF.js, fonts, and other bundled components remain subject to their respective upstream licenses. Third-party license files are retained alongside the corresponding components. Downloading and using model weights is subject to their model-card licenses.
