@@ -32,8 +32,7 @@ type LocalJevStatus struct {
 func (a *App) localJevDir() string { return filepath.Join(a.configDir, "local-jev") }
 func (a *App) LocalJevStatus() LocalJevStatus {
 	dir := a.localJevDir()
-	_, err := os.Stat(filepath.Join(dir, "runtime.json"))
-	r := LocalJevStatus{Installed: err == nil, Directory: dir}
+	r := LocalJevStatus{Installed: a.localJevInstalled(), Directory: dir}
 	a.mu.Lock()
 	r.Running = a.jevProcess != nil
 	a.mu.Unlock()
@@ -71,7 +70,7 @@ func (a *App) StartLocalJev() error {
 		size int64
 	}{{"MiniCPM-OCR-Jev-Q8_0.gguf", 2012021120}, {"mmproj-model-f16.gguf", 671372416}} {
 		if err := completeModel(filepath.Join(dir, "models", m.name), m.size); err != nil {
-			return errors.New("本地核验模型未安装完整，请运行交付的安装脚本")
+			return errors.New("本地核验模型未安装完整，请打开首次安装引导")
 		}
 	}
 	python := filepath.Join(dir, "venv", "bin", "python")
@@ -79,7 +78,7 @@ func (a *App) StartLocalJev() error {
 		python = filepath.Join(dir, "venv", "Scripts", "python.exe")
 	}
 	if _, err := os.Stat(python); err != nil {
-		return errors.New("核验运行环境尚未安装，请运行安装脚本")
+		return errors.New("核验运行环境尚未安装，请打开首次安装引导")
 	}
 	for _, addr := range []string{"127.0.0.1:18519", "127.0.0.1:18520"} {
 		c, e := net.Listen("tcp", addr)

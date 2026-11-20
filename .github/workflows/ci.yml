@@ -29,11 +29,12 @@ jobs:
       - run: npm test
       - run: pip install Pillow
       - run: python tests/layout_test.py
+      - run: python tests/install_test.py
       - name: Browser interaction tests
         run: |
           npm install --no-save --package-lock=false playwright@1.56.1
           npx playwright install --with-deps chrome
-          for test in ui scan-ui review-ui settings-ui workflow-ui; do node "tests/$test.mjs"; done
+          for test in ui scan-ui review-ui settings-ui workflow-ui onboarding-ui; do node "tests/$test.mjs"; done
   build:
     needs: test
     strategy:

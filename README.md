@@ -4,7 +4,7 @@
 
 PaperLens is a desktop app built with Go and Wails. It uses **MiniCPM-OCR 1.0** to recognize documents and a separate **MiniCPM-OCR-Jev** model to verify the results. Import a PDF or image, compare the source with editable text, review uncertain passages, and export the result.
 
-**Current version:** 0.5.13 preview · **Build targets:** macOS Apple Silicon and Windows x64
+**Current version:** 0.5.14 preview · **Build targets:** macOS Apple Silicon and Windows x64
 
 The application interface is currently in Chinese. The screenshots below show the actual macOS app using a seven-page scanned document; they are not mockups or a guarantee of recognition accuracy.
 
@@ -30,7 +30,7 @@ A pending review means the available evidence is insufficient for automatic conf
 
 ## Getting started
 
-1. **Set up the local models.** In the model settings dialog, download the OCR model, install the OCR engine, and start it. Set up the separate Jev environment using the instructions below.
+1. **Set up the local models.** Follow the first-run setup guide, or open **首次安装引导** (First-time setup) from the sidebar. It checks your environment, installs the models and runtimes, and verifies that the local services work.
 2. **Import a document.** Choose a PDF or supported image and run recognition for all pages. PaperLens segments the page and recognizes and verifies individual regions.
 3. **Run automatic proofreading.** The app checks for missed regions and attempts a limited number of re-recognition passes on uncertain content. Accepted corrections appear in the proofread version; the original OCR remains available.
 4. **Review flagged paragraphs.** Open the next pending review, compare the text with the source, and edit it as needed. Editing invalidates the previous verification score. Confirm a review only after checking the text.
@@ -40,21 +40,17 @@ You can import other documents while recognition runs. Resuming unfinished recog
 
 ## First-time model setup
 
-The OCR model and engine can be downloaded from the settings dialog. The separate Jev verification, layout detection, and rendering environment requires **Python 3.12+**, **Node.js**, and an internet connection for the initial installation.
+![PaperLens first-run guide detecting local runtimes and offering model installation with progress, retry and cancellation](docs/images/first-run-setup.jpg)
 
-From the repository root, run:
+The first-run guide opens automatically when required model files or runtime components are missing. You can also reopen it from the sidebar or model settings.
 
-```sh
-python3 local_jev/install.py
-```
+1. **Check the environment.** Jev requires Python 3.12+ and Node.js. The guide detects existing installations. If either is missing, use its official download link, install the runtime, then click **重新检查** (Check again). System runtimes are not bundled or installed silently.
+2. **Install local components.** Click **开始 / 继续安装** (Start / Continue). PaperLens downloads the OCR model and inference engine, then sets up the separate Jev model, isolated Python environment, Chromium renderer, and layout detector. No terminal commands are needed.
+3. **Verify and start.** The guide checks OCR and Jev connectivity and runs a local layout/rendering check before reporting success.
 
-On Windows:
+Allow approximately 12 GB of free disk space for model weights (about 4.7 GB), dependencies, and download archives. Initial setup needs an internet connection. The guide shows the current stage and elapsed time; you can leave it running in the background or cancel. Retrying reuses completed downloads and repairs incomplete setup. OCR downloads offer ModelScope and Hugging Face; Jev weights use ModelScope, with runtime dependencies from GitHub and Python package sources.
 
-```powershell
-py -3 local_jev/install.py
-```
-
-The installer creates an isolated environment in the application data directory and downloads checksum-verified model weights and the inference engine, then installs the Python dependencies, Chromium, and layout detection components. After setup, recognition and verification run locally without a cloud API key. Model weights, runtime configuration, and user documents are not included in this repository or the application build artifacts.
+After setup, recognition and verification run locally without a cloud API key. Model weights, runtime configuration, and user documents are not included in this repository or application build artifacts. Advanced users can still run `python3 local_jev/install.py` (macOS) or `py -3.12 local_jev/install.py` (Windows) from the source directory.
 
 ## Data and privacy
 
@@ -137,6 +133,7 @@ PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs node tests/workflow-ui.
 
 | Version | Changes |
 | --- | --- |
+| 0.5.14 | Guided first-run model installation, dependency detection, progress, cancellation/retry, and local service/layout checks. |
 | 0.5.13 | Complete line and image evidence can clear layout-related false positives without changing text. Novel word joins require an expanded third verification window. |
 | 0.5.12 | SQL statement context, literal-safe verification formatting, and a second window for novel cross-column or cross-page words. |
 | 0.5.11 | Cross-column and cross-page word-join evidence, paired updates in the proofread version, and invalidation after manual edits. |

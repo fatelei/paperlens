@@ -5,7 +5,7 @@
 <key>CFBundleDisplayName</key><string>PaperLens</string>
 <key>CFBundleIdentifier</key><string>app.paperlens.desktop</string>
 <key>CFBundleVersion</key><string>2</string>
-<key>CFBundleShortVersionString</key><string>0.5.13</string>
+<key>CFBundleShortVersionString</key><string>0.5.14</string>
 <key>CFBundleExecutable</key><string>PaperLens</string>
 <key>CFBundleIconFile</key><string>PaperLens.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
