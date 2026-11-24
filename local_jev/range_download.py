@@ -2,6 +2,7 @@
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 import re
+import math
 import time
 import urllib.request
 
@@ -62,7 +63,8 @@ def download_ranges(url, part, progress, chunk_size=8 * 1024 * 1024):
                 received += len(data)
                 speed = (received - offset) / max(time.monotonic() - started, 0.001)
                 minutes = (total - received) / max(speed, 1) / 60
-                progress(f"4 路下载 {part.name.removesuffix('.part')} · {received / 1048576:.0f}/{total / 1048576:.0f} MB · {speed / 1048576:.1f} MB/s · 约剩 {minutes:.0f} 分钟", received / total)
+                eta = "当前文件下载完成，接下来校验" if received == total else f"当前文件约剩 {max(1, math.ceil(minutes))} 分钟"
+                progress(f"4 路下载 {part.name.removesuffix('.part')} · {received / 1048576:.0f}/{total / 1048576:.0f} MB · {speed / 1048576:.1f} MB/s · {eta}", received / total)
                 submit_next()
     finally:
         for future in pending:

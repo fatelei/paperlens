@@ -2,6 +2,7 @@
 export function createOnboarding({call,available,busy,isCancelled=()=>false,onBusy,onDone}) {
  const $=id=>document.getElementById(id),dialog=$('onboarding');
  let snapshot=null,running=false,checking=false,cancelled=false,finished=false,started=0,timer=null,phase='';
+ const elapsed=()=>{const seconds=Math.floor((Date.now()-started)/1000);return `${Math.floor(seconds/60)} 分 ${seconds%60} 秒`;};
  const message=(text,tone='info')=>{ $('onboarding-message').textContent=text;$('onboarding-message').dataset.tone=tone; };
  function render(){
   const s=snapshot,dependencies=!!s?.python&&!!s?.node;
@@ -42,7 +43,7 @@ export function createOnboarding({call,available,busy,isCancelled=()=>false,onBu
   if(running||checking)return;
   if(busy()){message('当前还有任务正在运行，请完成或取消后再安装。','warning');return;}
   running=true;cancelled=false;finished=false;started=Date.now();onBusy(true);render();
-  timer=setInterval(()=>{$('onboarding-elapsed').textContent=`已用时 ${Math.floor((Date.now()-started)/1000)} 秒 · 可后台继续或取消`;},1000);
+  timer=setInterval(()=>{$('onboarding-elapsed').textContent=`已用时 ${elapsed()} · 可后台继续或取消`;},1000);
   try{
    snapshot=await request('SetupStatus');render();
    if(!snapshot.supported)throw Error('此平台暂不支持自动安装');
@@ -58,7 +59,7 @@ export function createOnboarding({call,available,busy,isCancelled=()=>false,onBu
   }catch(e){
    if(cancelled||isCancelled()){await Promise.allSettled([call('StopEngine'),call('StopLocalJev')]);message('已取消。已完成的下载保留，下次点击“开始 / 继续安装”即可重试。','warning');}
    else message('准备失败：'+String(e?.message||e)+' 已完成的文件保留，可重新检查后重试。','error');
-  }finally{clearInterval(timer);running=false;onBusy(false);$('onboarding-elapsed').textContent=`本次用时 ${Math.floor((Date.now()-started)/1000)} 秒`;render();await onDone().catch(()=>{});}
+  }finally{clearInterval(timer);running=false;onBusy(false);$('onboarding-elapsed').textContent=`本次用时 ${elapsed()}`;render();await onDone().catch(()=>{});}
  }
  $('onboarding-start').onclick=start;$('onboarding-refresh').onclick=refresh;
  $('onboarding-close').onclick=()=>dialog.close();

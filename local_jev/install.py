@@ -37,6 +37,7 @@ def download(url,path,sha):
  # A completed temporary file can survive a previous interrupted rename.
  if offset and digest(part)==sha:os.replace(part,path);return
  if download_ranges(url,part,progress):
+  progress('正在校验 '+path.name+'，下载已完成，安装尚未结束…')
   if digest(part)!=sha:
    part.unlink(missing_ok=True);raise RuntimeError('Checksum mismatch: '+path.name+'; retry to download again')
   os.replace(part,path);return
@@ -53,6 +54,7 @@ def download(url,path,sha):
     f.write(b);received+=len(b)
     if time.monotonic()-last>=1:
      progress('下载 '+path.name+' · '+str(round(received/1048576))+' MB',received/total if total else 0);last=time.monotonic()
+ progress('正在校验 '+path.name+'，下载已完成，安装尚未结束…')
  if digest(part)!=sha:
   part.unlink(missing_ok=True);raise RuntimeError('Checksum mismatch: '+path.name+'; retry to download again')
  os.replace(part,path)

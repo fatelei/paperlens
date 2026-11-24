@@ -6,5 +6,5 @@
   "frontend:build": "",
   "frontend:dev:watcher": "",
   "author": {"name": "PaperLens", "email": ""},
-  "info": {"companyName": "PaperLens", "productName": "PaperLens", "productVersion": "0.5.17", "copyright": "PaperLens", "comments": "Local document OCR with optional Jev verification"}
+  "info": {"companyName": "PaperLens", "productName": "PaperLens", "productVersion": "0.5.18", "copyright": "PaperLens", "comments": "Local document OCR with optional Jev verification"}
 }
