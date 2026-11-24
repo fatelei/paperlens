@@ -32,6 +32,8 @@ jobs:
           for suite in noble noble-updates noble-security; do
             echo "deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://archive.ubuntu.com/ubuntu $suite main universe"
           done > "$sources"
+          # Playwright's later dependency installation must use the same sources.
+          printf 'Dir::Etc::sourcelist "%s";\nDir::Etc::sourceparts "-";\n' "$sources" | sudo tee /etc/apt/apt.conf.d/99paperlens-sources > /dev/null
           apt_options=(-o "Dir::Etc::sourcelist=$sources" -o Dir::Etc::sourceparts=- -o Acquire::Retries=3 -o Acquire::https::Timeout=30 -o Acquire::Languages=none)
           sudo apt-get "${apt_options[@]}" update
           sudo apt-get "${apt_options[@]}" install -y --no-install-recommends libgtk-3-dev libwebkit2gtk-4.1-dev
