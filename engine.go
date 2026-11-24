@@ -162,6 +162,16 @@ func (a *App) download(ctx context.Context, addr, path, digest string, progress 
 		return fmt.Errorf("下载失败，已保留进度：%w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable && offset > 0 {
+		resp.Body.Close()
+		if digest != "" && verifiedArchive(part, strings.TrimPrefix(digest, "sha256:")) {
+			return os.Rename(part, path)
+		}
+		if err = os.Remove(part); err != nil {
+			return err
+		}
+		return a.download(ctx, addr, path, digest, progress)
+	}
 	if resp.StatusCode != 200 && resp.StatusCode != 206 {
 		return fmt.Errorf("下载失败 HTTP %d，已保留进度", resp.StatusCode)
 	}

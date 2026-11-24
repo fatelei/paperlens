@@ -4,7 +4,7 @@
 
 PaperLens is a desktop app built with Go and Wails. It uses **MiniCPM-OCR 1.0** to recognize documents and a separate **MiniCPM-OCR-Jev** model to verify the results. Import a PDF or image, compare the source with editable text, review uncertain passages, and export the result.
 
-**Current version:** 0.5.14 preview · **Build targets:** macOS Apple Silicon and Windows x64
+**Current version:** 0.5.15 preview · **Build targets:** macOS Apple Silicon and Windows x64
 
 The application interface is currently in Chinese. The screenshots below show the actual macOS app using a seven-page scanned document; they are not mockups or a guarantee of recognition accuracy.
 
@@ -44,13 +44,13 @@ You can import other documents while recognition runs. Resuming unfinished recog
 
 The first-run guide opens automatically when required model files or runtime components are missing. You can also reopen it from the sidebar or model settings.
 
-1. **Check the environment.** Jev requires Python 3.12+ and Node.js. The guide detects existing installations. If either is missing, use its official download link, install the runtime, then click **重新检查** (Check again). System runtimes are not bundled or installed silently.
-2. **Install local components.** Click **开始 / 继续安装** (Start / Continue). PaperLens downloads the OCR model and inference engine, then sets up the separate Jev model, isolated Python environment, Chromium renderer, and layout detector. No terminal commands are needed.
+1. **Start setup.** Click **开始 / 继续安装** (Start / Continue). PaperLens downloads and prepares its own runtime components. You do not need to install Python, Node.js, pip, or configure PATH.
+2. **Wait for local components.** PaperLens downloads the OCR model and inference engine, then sets up the separate Jev model, isolated Python environment, Chromium renderer, and layout detector. No terminal commands are needed.
 3. **Verify and start.** The guide checks OCR and Jev connectivity and runs a local layout/rendering check before reporting success.
 
-Allow approximately 12 GB of free disk space for model weights (about 4.7 GB), dependencies, and download archives. Initial setup needs an internet connection. The guide shows the current stage and elapsed time; you can leave it running in the background or cancel. Retrying reuses completed downloads and repairs incomplete setup. OCR downloads offer ModelScope and Hugging Face; Jev weights use ModelScope, with runtime dependencies from GitHub and Python package sources.
+Allow approximately 12 GB of free disk space for model weights (about 4.7 GB), dependencies, and download archives. Initial setup needs an internet connection. The guide shows the current stage and elapsed time; you can leave it running in the background or cancel. Retrying reuses completed downloads and repairs incomplete setup. OCR downloads offer ModelScope and Hugging Face; Jev weights use ModelScope, with runtime dependencies from GitHub, nodejs.org and Python package sources. Go downloads pinned standalone Python and Node archives with SHA256 verification into the application data directory. These private runtimes do not modify your system installations.
 
-After setup, recognition and verification run locally without a cloud API key. Model weights, runtime configuration, and user documents are not included in this repository or application build artifacts. Advanced users can still run `python3 local_jev/install.py` (macOS) or `py -3.12 local_jev/install.py` (Windows) from the source directory.
+After setup, recognition and verification run locally without a cloud API key. Model weights, runtime configuration, and user documents are not included in this repository or application build artifacts. The source installer remains a development utility. Desktop setup always binds verification to the app-managed runtimes, migrating older environments when needed.
 
 ## Data and privacy
 
@@ -133,6 +133,7 @@ PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs node tests/workflow-ui.
 
 | Version | Changes |
 | --- | --- |
+| 0.5.15 | App-managed runtime downloads; no separate Python/Node installation or PATH configuration for desktop users. |
 | 0.5.14 | Guided first-run model installation, dependency detection, progress, cancellation/retry, and local service/layout checks. |
 | 0.5.13 | Complete line and image evidence can clear layout-related false positives without changing text. Novel word joins require an expanded third verification window. |
 | 0.5.12 | SQL statement context, literal-safe verification formatting, and a second window for novel cross-column or cross-page words. |

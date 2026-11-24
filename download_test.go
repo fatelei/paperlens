@@ -87,3 +87,36 @@ func TestTarTraversalAndLinks(t *testing.T) {
 		}
 	}
 }
+
+func TestDownloadRecoversCompletedOrCorruptPartial(t *testing.T) {
+	for _, corrupt := range []bool{false, true} {
+		t.Run(fmt.Sprint(corrupt), func(t *testing.T) {
+			data := []byte("complete archive")
+			sum := sha256.Sum256(data)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Range") != "" {
+					w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+					return
+				}
+				w.Write(data)
+			}))
+			defer server.Close()
+			target := filepath.Join(t.TempDir(), "archive")
+			part := append([]byte{}, data...)
+			if corrupt {
+				part[0] = 'X'
+			}
+			if err := os.WriteFile(target+".part", part, 0600); err != nil {
+				t.Fatal(err)
+			}
+			a := NewApp()
+			if err := a.download(context.Background(), server.URL, target, fmt.Sprintf("%x", sum), func(int64, int64) {}); err != nil {
+				t.Fatal(err)
+			}
+			got, err := os.ReadFile(target)
+			if err != nil || string(got) != string(data) {
+				t.Fatal("partial recovery failed", err)
+			}
+		})
+	}
+}

@@ -97,7 +97,7 @@ func (a *App) StartLocalJev() error {
 	key := hex.EncodeToString(keyBytes)
 	cmd := exec.Command(python, filepath.Join(dir, "bootstrap.py"), dir)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "PAPERLENS_LOCAL_JEV_TOKEN="+key, "PYTHONUNBUFFERED=1", "NO_PROXY=127.0.0.1,localhost", "no_proxy=127.0.0.1,localhost")
+	cmd.Env = append(isolatedRuntimeEnv(), "PAPERLENS_LOCAL_JEV_TOKEN="+key, "PYTHONUNBUFFERED=1", "NO_PROXY=127.0.0.1,localhost", "no_proxy=127.0.0.1,localhost")
 	if a.settings.CPUOnly {
 		cmd.Env = append(cmd.Env, "PAPERLENS_JEV_CPU=1")
 	}

@@ -6,7 +6,11 @@ from pathlib import Path
 
 if sys.version_info < (3,12): raise SystemExit('Python 3.12+ is required')
 node=os.environ.get('PAPERLENS_NODE') or shutil.which('node')
-if not node: raise SystemExit('Install Node.js from nodejs.org before continuing')
+if not node: raise SystemExit('Missing render runtime; use the PaperLens setup guide')
+if os.environ.get('PAPERLENS_MANAGED_RUNTIME') == '1':
+ from pip._vendor import certifi
+ os.environ.setdefault('SSL_CERT_FILE', certifi.where())
+ os.environ.setdefault('REQUESTS_CA_BUNDLE', certifi.where())
 if sys.platform=='darwin': base=Path.home()/'Library/Application Support'
 elif os.name=='nt': base=Path(os.environ['APPDATA'])
 else: base=Path(os.environ.get('XDG_CONFIG_HOME',str(Path.home()/'.config')))
@@ -73,11 +77,23 @@ with tempfile.TemporaryDirectory() as tmp:
  executable=next(Path(tmp).rglob('llama-server.exe' if os.name=='nt' else 'llama-server'))
  replace_engine(executable.parent,root/'engine')
 shutil.copytree(source,root/'service',dirs_exist_ok=True)
-python=root/'venv'/('Scripts/python.exe' if os.name=='nt' else 'bin/python')
-progress('正在准备隔离的核验运行环境…')
-if not python.exists():subprocess.run([sys.executable,'-m','venv',str(root/'venv')],check=True)
-if subprocess.run([str(python),'-m','pip','--version'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode:
- subprocess.run([str(python),'-m','ensurepip','--upgrade'],check=True)
+def prepare_environment(base_python, directory, managed=False):
+ if directory.is_symlink():raise RuntimeError('Unsafe environment directory')
+ python=directory/('Scripts/python.exe' if os.name=='nt' else 'bin/python')
+ if managed and directory.exists():
+  expected=os.path.realpath(base_python)
+  try:
+   probe=subprocess.run([str(python),'-I','-c','import os,sys; print(os.path.realpath(sys._base_executable))'],capture_output=True,text=True,timeout=20)
+   same=probe.returncode==0 and os.path.normcase(probe.stdout.strip())==os.path.normcase(expected)
+  except (OSError,subprocess.TimeoutExpired):same=False
+  if not same:shutil.rmtree(directory)
+ if not python.exists():subprocess.run([str(base_python),'-m','venv',str(directory)],check=True)
+ if subprocess.run([str(python),'-m','pip','--version'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode:
+  subprocess.run([str(python),'-m','ensurepip','--upgrade'],check=True)
+ return python
+
+progress('正在准备应用专用核验环境…')
+python=prepare_environment(sys.executable,root/'venv',os.environ.get('PAPERLENS_MANAGED_RUNTIME')=='1')
 progress('正在安装核验依赖，可能需要几分钟…')
 subprocess.run([str(python),'-m','pip','install','-r',str(root/'service/requirements.txt'),'-r',str(root/'service/sdk/requirements-score.txt')],check=True)
 progress('正在安装本地渲染浏览器…')
@@ -105,7 +121,7 @@ layout=RapidLayout(model_type='doclayout_docstructbench')
 (root/'layout-ready.json').write_text(json.dumps({'browser':browser_path,'layout':str(ModelProcessor.get_model_path(ModelType('doclayout_docstructbench'))),'ready':True}))
 """
 subprocess.run([str(python),'-c',check,str(root)],env={**os.environ,'PLAYWRIGHT_BROWSERS_PATH':str(root/'browsers')},check=True)
-manifest={'version':'0.3.0','node':node,'engine':'b12435','sdkCommit':'f5357c72e1605698fa857d74222c0414ca369ae3'}
+manifest={'version':'0.4.0','python':sys.executable,'node':node,'engine':'b12435','sdkCommit':'f5357c72e1605698fa857d74222c0414ca369ae3'}
 (root/'runtime.json.tmp').write_text(json.dumps(manifest))
 os.replace(root/'runtime.json.tmp',root/'runtime.json')
 progress('核验、浏览器与版面分析安装检查通过',1)

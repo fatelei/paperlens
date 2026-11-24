@@ -4,22 +4,20 @@ export function createOnboarding({call,available,busy,isCancelled=()=>false,onBu
  let snapshot=null,running=false,checking=false,cancelled=false,finished=false,started=0,timer=null,phase='';
  const message=(text,tone='info')=>{ $('onboarding-message').textContent=text;$('onboarding-message').dataset.tone=tone; };
  function render(){
-  const s=snapshot,needRuntime=!s?.verification,dependencies=!!s?.python&&!!s?.node;
-  $('onboarding-python').textContent=s?.python?'Python 已找到':'Python 3.12+ · 未找到';
-  $('onboarding-node').textContent=s?.node?'Node.js 已找到':'Node.js · 未找到';
-  $('onboarding-python-link').hidden=!!s?.python;$('onboarding-node-link').hidden=!!s?.node;
+  const s=snapshot,dependencies=!!s?.python&&!!s?.node;
+  $('onboarding-runtime').textContent=dependencies?'已准备':'将由应用自动下载并安装';
   $('onboarding-platform').textContent=s?`${s.platform} · ${s.supported?'支持本机安装':'暂不支持此平台，请使用 macOS Apple Silicon 或 Windows x64'}`:'正在检查本机环境…';
   for(const [id,ready] of [['ocr',s?.ocrModels&&s?.ocrEngine],['jev',s?.verification]]){$('onboarding-'+id).textContent=ready?'已安装':'待安装';}
-  $('onboarding-start').disabled=running||checking||!s?.supported||(needRuntime&&!dependencies);
+  $('onboarding-start').disabled=running||checking||!s?.supported;
   $('onboarding-start').textContent=running?'正在准备…':finished?'重新检查连接':s?.complete?'启动并检查连接':'开始 / 继续安装';
   $('onboarding-refresh').disabled=running||checking;$('onboarding-source').disabled=running||checking;
   $('onboarding-cancel').hidden=!running;$('onboarding-cancel').disabled=cancelled;
   $('onboarding-close').textContent=running?'后台继续':finished?'开始使用':'稍后设置';
-  $('onboarding-runtime-help').hidden=!needRuntime||dependencies;
+
  }
  async function refresh(){
   if(running||checking)return;checking=true;render();
-  try{snapshot=await call('SetupStatus');message(snapshot.complete?'模型与环境已安装，点击下方按钮启动并检查连接。':snapshot.supported?'请完成环境检查，然后开始安装；下载中断后可继续。':'本机平台暂不支持自动安装。');}
+  try{snapshot=await call('SetupStatus');message(snapshot.complete?'模型与环境已安装，点击下方按钮启动并检查连接。':snapshot.supported?'点击开始即可自动准备所需组件，无需安装其他软件；下载中断后可继续。':'本机平台暂不支持自动安装。');}
   catch(e){snapshot=null;message('环境检查失败：'+String(e?.message||e)+'。请重新检查。','error')}
   finally{checking=false;render()}
  }
@@ -48,7 +46,7 @@ export function createOnboarding({call,available,busy,isCancelled=()=>false,onBu
   try{
    snapshot=await request('SetupStatus');render();
    if(!snapshot.supported)throw Error('此平台暂不支持自动安装');
-   if(!snapshot.verification&&(!snapshot.python||!snapshot.node))throw Error('请先安装缺少的 Python / Node.js，再重新检查。');
+   if(!snapshot.python||!snapshot.node){await request('StopLocalJev');stage('正在自动准备应用运行环境…');await request('InstallSetupRuntime');snapshot=await request('SetupStatus');render();}
    if(!snapshot.ocrModels||!snapshot.ocrEngine){await request('StopEngine');}
    if(!snapshot.ocrModels){stage('1 / 3 · 下载 OCR 模型（约 2 GB）');await request('DownloadModels',$('onboarding-source').value);snapshot.ocrModels=true;render();}
    if(!snapshot.ocrEngine){stage('1 / 3 · 安装 OCR 推理引擎');await request('InstallEngine');snapshot.ocrEngine=true;render();}
@@ -65,7 +63,6 @@ export function createOnboarding({call,available,busy,isCancelled=()=>false,onBu
  $('onboarding-start').onclick=start;$('onboarding-refresh').onclick=refresh;
  $('onboarding-close').onclick=()=>dialog.close();
  $('onboarding-cancel').onclick=async()=>{cancelled=true;message('正在取消，请稍候…');render();try{await call('Cancel')}catch(e){message('取消请求失败，请稍候重试：'+String(e),'error');cancelled=false;render()}};
- for(const component of ['python','node'])$('onboarding-'+component+'-link').onclick=()=>call('OpenSetupDownload',component).catch(e=>message(String(e),'error'));
  for(const id of ['onboarding-open','onboarding-settings'])$(id).onclick=()=>{$('settings').close();open()};
  return {open,progress:p=>{if(running){$('onboarding-phase').textContent=phase+' · '+p.message;if(p.percent>0)$('onboarding-progress').value=Math.min(1,p.percent);else $('onboarding-progress').removeAttribute('value');}},auto:async()=>{if(!available())return;try{snapshot=await call('SetupStatus');if(!snapshot.complete)await open()}catch{await open()}}};
 }

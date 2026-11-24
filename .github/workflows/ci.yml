@@ -48,6 +48,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Check app-managed runtime without system PATH
+        shell: bash
+        env:
+          PAPERLENS_TEST_RUNTIME: '1'
+          PAPERLENS_TEST_RENDER: '1'
+        run: go test -timeout 15m -run TestManagedRuntimeLive -v .
       - name: Build macOS Apple Silicon
         if: runner.os == 'macOS'
         run: |

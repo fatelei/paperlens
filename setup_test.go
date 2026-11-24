@@ -44,7 +44,7 @@ func TestSetupCompletenessChecksActualAssets(t *testing.T) {
 	for _, name := range names {
 		put(name)
 	}
-	marker, _ := json.Marshal(map[string]any{"version": "0.3.0", "node": filepath.Join(dir, "node")})
+	marker, _ := json.Marshal(map[string]any{"version": "0.4.0", "python": filepath.Join(dir, python), "node": filepath.Join(dir, "node")})
 	os.WriteFile(filepath.Join(dir, "runtime.json"), marker, 0600)
 	layout, _ := json.Marshal(map[string]any{"ready": true, "browser": filepath.Join(dir, "browser"), "layout": filepath.Join(dir, "layout.onnx")})
 	os.WriteFile(filepath.Join(dir, "layout-ready.json"), layout, 0600)
@@ -63,15 +63,19 @@ func TestSetupCompletenessChecksActualAssets(t *testing.T) {
 		}
 		f.Close()
 	}
-	if !a.localJevInstalled() {
+	if !a.localJevInstalledForRuntime(filepath.Join(dir, python), filepath.Join(dir, "node")) {
 		t.Fatal("complete fixture rejected")
+	}
+	put("system-python")
+	if a.localJevInstalledForRuntime(filepath.Join(dir, "system-python"), filepath.Join(dir, "node")) {
+		t.Fatal("external interpreter must require migration")
 	}
 	for _, name := range append(names, "models/MiniCPM-OCR-Jev-Q8_0.gguf", "models/mmproj-model-f16.gguf", "runtime.json", "layout-ready.json") {
 		p := filepath.Join(dir, filepath.FromSlash(name))
 		if e := os.Rename(p, p+".saved"); e != nil {
 			t.Fatal(e)
 		}
-		if a.localJevInstalled() {
+		if a.localJevInstalledForRuntime(filepath.Join(dir, python), filepath.Join(dir, "node")) {
 			t.Errorf("missing %s accepted", name)
 		}
 		os.Rename(p+".saved", p)

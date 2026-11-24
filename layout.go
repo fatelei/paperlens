@@ -5,7 +5,6 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 )
@@ -42,7 +41,7 @@ func (a *App) DetectLayout(data string) (LayoutResult, error) {
 	if runtime.GOOS == "windows" {
 		python = filepath.Join(a.localJevDir(), "venv", "Scripts", "python.exe")
 	}
-	cmd := exec.CommandContext(ctx, python, "-c", layoutScript)
+	cmd := runtimeCommand(ctx, python, "-c", layoutScript)
 	cmd.Stdin = bytes.NewBufferString(data)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

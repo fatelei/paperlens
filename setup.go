@@ -15,8 +15,6 @@ import (
 	"runtime"
 	"strings"
 	"time"
-
-	wr "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // Bundled installer and SDK make onboarding independent of a source checkout.
@@ -42,13 +40,26 @@ func regularFile(path string) bool {
 }
 
 func (a *App) localJevInstalled() bool {
+	python, node := a.managedRuntimePaths()
+	return a.localJevInstalledForRuntime(python, node)
+}
+func sameExecutable(a, b string) bool {
+	first, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	second, err := os.Stat(b)
+	return err == nil && os.SameFile(first, second)
+}
+func (a *App) localJevInstalledForRuntime(basePython, baseNode string) bool {
 	dir := a.localJevDir()
 	var manifest struct {
 		Version string `json:"version"`
+		Python  string `json:"python"`
 		Node    string `json:"node"`
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "runtime.json"))
-	if err != nil || json.Unmarshal(data, &manifest) != nil || manifest.Version != "0.3.0" || !regularFile(manifest.Node) {
+	if err != nil || json.Unmarshal(data, &manifest) != nil || manifest.Version != "0.4.0" || !sameExecutable(manifest.Python, basePython) || !sameExecutable(manifest.Node, baseNode) {
 		return false
 	}
 	for _, m := range []struct {
@@ -78,83 +89,17 @@ func (a *App) localJevInstalled() bool {
 	return err == nil && json.Unmarshal(data, &ready) == nil && ready.Ready && regularFile(ready.Browser) && regularFile(ready.Layout)
 }
 
-func probeExecutable(ctx context.Context, executable string, args ...string) string {
-	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, executable, args...)
-	configureProcess(cmd)
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
-}
-
-func setupDependencies(ctx context.Context) (string, string) {
-	pythonCandidates := []string{"python3.12", "/opt/homebrew/bin/python3.12", "/usr/local/bin/python3.12", "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12", "/opt/homebrew/bin/python3", "/usr/local/bin/python3", "python3", "python"}
-	if runtime.GOOS == "darwin" {
-		paths, _ := filepath.Glob("/Library/Frameworks/Python.framework/Versions/3.*/bin/python3")
-		pythonCandidates = append(pythonCandidates, paths...)
-	}
-	if runtime.GOOS == "windows" {
-		pythonCandidates = append([]string{"py"}, pythonCandidates...)
-		for _, base := range []string{os.Getenv("LocalAppData"), os.Getenv("ProgramFiles")} {
-			if base != "" {
-				for _, v := range []string{"Python312", "Python313", "Python314"} {
-					pythonCandidates = append(pythonCandidates, filepath.Join(base, "Programs", "Python", v, "python.exe"), filepath.Join(base, v, "python.exe"))
-				}
-			}
-		}
-	}
-	python := ""
-	for _, path := range pythonCandidates {
-		args := []string{"-c", "import sys; assert sys.version_info >= (3,12); print(sys.executable)"}
-		if path == "py" {
-			args = append([]string{"-3.12"}, args...)
-		}
-		if p := probeExecutable(ctx, path, args...); filepath.IsAbs(p) && regularFile(p) {
-			python = p
-			break
-		}
-	}
-	node := ""
-	nodes := []string{"node", "/opt/homebrew/bin/node", "/usr/local/bin/node"}
-	if base := os.Getenv("ProgramFiles"); base != "" {
-		nodes = append(nodes, filepath.Join(base, "nodejs", "node.exe"))
-	}
-	for _, path := range nodes {
-		if p := probeExecutable(ctx, path, "-p", "process.execPath"); filepath.IsAbs(p) && regularFile(p) {
-			node = p
-			break
-		}
-	}
-	return python, node
-}
-
 func (a *App) SetupStatus() SetupStatus {
 	s := a.GetSettings()
 	r := SetupStatus{Supported: runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" || runtime.GOOS == "windows" && runtime.GOARCH == "amd64", Platform: runtime.GOOS + "/" + runtime.GOARCH, Directory: a.configDir, OCRModels: true, OCREngine: regularFile(s.EnginePath), Verification: a.localJevInstalled()}
-	r.Python, r.Node = setupDependencies(a.ctx)
+	r.Python, r.Node = a.managedRuntimePaths()
 	for _, m := range modelFiles {
 		if completeModel(filepath.Join(s.ModelDir, m.Name), m.Size) != nil {
 			r.OCRModels = false
 		}
 	}
-	r.Complete = r.OCRModels && r.OCREngine && r.Verification
+	r.Complete = r.Python != "" && r.Node != "" && r.OCRModels && r.OCREngine && r.Verification
 	return r
-}
-
-// Fixed destinations only; no arbitrary URL or command accepted from the UI.
-func (a *App) OpenSetupDownload(component string) error {
-	urls := map[string]string{"python": "https://www.python.org/downloads/", "node": "https://nodejs.org/en/download"}
-	url, ok := urls[component]
-	if !ok {
-		return errors.New("未知运行环境")
-	}
-	if a.native {
-		wr.BrowserOpenURL(a.ctx, url)
-	}
-	return nil
 }
 
 func (a *App) InstallLocalJev() error {
@@ -169,10 +114,10 @@ func (a *App) InstallLocalJev() error {
 	if running {
 		return errors.New("请先停止核验模型，再安装环境")
 	}
-	python, node := setupDependencies(ctx)
-	if python == "" || node == "" {
-		return errors.New("请在安装引导中完成 Python 3.12+ 和 Node.js 安装，再重新检查")
+	if err = a.ensureSetupRuntime(ctx); err != nil {
+		return err
 	}
+	python, node := a.managedRuntimePaths()
 	if err = os.MkdirAll(a.configDir, 0700); err != nil {
 		return err
 	}
@@ -209,7 +154,7 @@ func (a *App) InstallLocalJev() error {
 	defer log.Close()
 	cmd := exec.Command(python, filepath.Join(bundle, "install.py"))
 	cmd.Dir = bundle
-	cmd.Env = append(os.Environ(), "PAPERLENS_DATA_DIR="+a.configDir, "PAPERLENS_NODE="+node, "PYTHONUNBUFFERED=1", "PATH="+filepath.Dir(node)+string(os.PathListSeparator)+filepath.Dir(python)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cmd.Env = append(isolatedRuntimeEnv(), "PAPERLENS_DATA_DIR="+a.configDir, "PAPERLENS_NODE="+node, "PAPERLENS_MANAGED_RUNTIME=1", "PYTHONUNBUFFERED=1", "PATH="+filepath.Dir(node)+string(os.PathListSeparator)+filepath.Dir(python)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	configureJevProcess(cmd)
 	reader, writer := io.Pipe()
 	cmd.Stdout = io.MultiWriter(log, writer)
@@ -288,7 +233,7 @@ with sync_playwright() as p:
     assert page.locator('p').inner_text()=='PaperLens setup check'
     b.close()
 `)
-	cmd.Env = append(os.Environ(), "PLAYWRIGHT_BROWSERS_PATH="+filepath.Join(dir, "browsers"))
+	cmd.Env = append(isolatedRuntimeEnv(), "PLAYWRIGHT_BROWSERS_PATH="+filepath.Join(dir, "browsers"))
 	configureJevProcess(cmd)
 	cmd.Cancel = func() error { killJevProcess(cmd); return nil }
 	cmd.WaitDelay = 3 * time.Second
