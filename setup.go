@@ -19,7 +19,7 @@ import (
 
 // Bundled installer and SDK make onboarding independent of a source checkout.
 //
-//go:embed local_jev/install.py all:local_jev/service
+//go:embed local_jev/install.py local_jev/range_download.py all:local_jev/service
 var setupAssets embed.FS
 
 type SetupStatus struct {

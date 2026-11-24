@@ -3,6 +3,7 @@ Run from the delivered source: python3 local_jev/install.py
 """
 import hashlib, json, os, platform, shutil, subprocess, sys, tarfile, tempfile, time, urllib.request, zipfile
 from pathlib import Path
+from range_download import download_ranges
 
 if sys.version_info < (3,12): raise SystemExit('Python 3.12+ is required')
 node=os.environ.get('PAPERLENS_NODE') or shutil.which('node')
@@ -35,6 +36,10 @@ def download(url,path,sha):
  offset=part.stat().st_size if part.exists() else 0
  # A completed temporary file can survive a previous interrupted rename.
  if offset and digest(part)==sha:os.replace(part,path);return
+ if download_ranges(url,part,progress):
+  if digest(part)!=sha:
+   part.unlink(missing_ok=True);raise RuntimeError('Checksum mismatch: '+path.name+'; retry to download again')
+  os.replace(part,path);return
  req=urllib.request.Request(url,headers={'Range':f'bytes={offset}-'} if offset else {})
  progress('正在下载 '+path.name+'（支持断点续传）')
  with urllib.request.urlopen(req,timeout=180) as r:
