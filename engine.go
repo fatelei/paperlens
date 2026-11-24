@@ -121,11 +121,11 @@ func (a *App) DownloadModels(source string) error {
 			addr = "https://huggingface.co/openbmb/" + m.Repo + "/resolve/main/" + m.Name
 		}
 		if err = a.download(ctx, addr, path, m.SHA256, func(n, total int64) {
-			p := float64(i) / 3
+			p := 0.0
 			if total > 0 {
-				p += float64(n) / float64(total) / 3
+				p = float64(n) / float64(total)
 			}
-			a.emit(fmt.Sprintf("下载 %s · %.0f MB", m.Name, float64(n)/(1<<20)), p)
+			a.emit(fmt.Sprintf("下载 %s · %.0f / %.0f MB", m.Name, float64(n)/(1<<20), float64(max(total, 0))/(1<<20)), p)
 		}); err != nil {
 			return err
 		}
@@ -304,6 +304,7 @@ func (a *App) InstallEngine() error {
 	if err != nil {
 		return err
 	}
+	a.emit("正在解压并安装 OCR 推理引擎", 0)
 	if strings.HasSuffix(archive, ".zip") {
 		err = extractZip(archive, dir)
 	} else {

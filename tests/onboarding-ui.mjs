@@ -15,7 +15,7 @@ await page.addInitScript(()=>{
  window.calls=[];window.setup={supported:true,platform:'test',python:'',node:'',ocrModels:false,ocrEngine:false,verification:false,complete:false};
  const settings={modelDir:'/tmp/models',enginePath:'/tmp/server',ocrURL:'http://127.0.0.1:18499',model:'minicpm-ocr',cpuOnly:true,threshold:.9,jevURL:'http://127.0.0.1:18520/v1/rm/score',jevMode:'local',jevModel:'MiniCPM-OCR-Jev'};
  window.go={main:{App:{GetSettings:async()=>settings,SetupStatus:async()=>({...window.setup,complete:window.setup.ocrModels&&window.setup.ocrEngine&&window.setup.verification}),EngineStatus:async()=>({ready:!!window.ocr&&!window.loading,running:!!window.ocr,missing:[],platform:'test'}),LocalJevStatus:async()=>({installed:window.setup.verification,ready:!!window.jev,running:!!window.jev}),InstallSetupRuntime:async()=>{window.calls.push('environment');if(window.runtimeFail)throw Error('runtime download interrupted');window.setup.python='/private/python';window.setup.node='/private/node'},StopEngine:async()=>{window.ocr=false;window.calls.push('stopOCR')},StopLocalJev:async()=>{window.jev=false;window.calls.push('stopJev')},DownloadModels:async()=>{window.calls.push('models');if(window.hold)await new Promise((resolve,reject)=>window.release={resolve,reject});window.setup.ocrModels=true},InstallEngine:async()=>{window.calls.push('engine');if(window.fail)throw Error('download interrupted');window.setup.ocrEngine=true},InstallLocalJev:async()=>{window.calls.push('jev');window.setup.verification=true},StartEngine:async()=>{window.calls.push('startOCR');if(window.ocr)throw Error('already running');window.ocr=true},StartLocalJev:async()=>window.jev=true,CheckSetupRuntime:async()=>window.calls.push('runtime'),Cancel:async()=>{window.calls.push('cancel');window.release?.reject(Error('cancelled'))}}}};
- window.runtime={EventsOn:()=>{},OnFileDrop:()=>{}};
+ window.events={};window.runtime={EventsOn:(name,handler)=>window.events[name]=handler,OnFileDrop:()=>{}};
 });
 try{
  await page.goto(`http://127.0.0.1:${server.address().port}`);
@@ -31,6 +31,9 @@ try{
  assert.equal(await page.evaluate(()=>window.setup.ocrModels),true);assert.equal(await page.evaluate(()=>window.setup.verification),false);
  await page.evaluate(()=>window.fail=false);await page.locator('#onboarding-start').click();
  await page.waitForFunction(()=>document.querySelector('#onboarding-message').textContent.includes('准备完成'));
+ assert.equal(await page.locator('#setup-step-4').getAttribute('aria-current'),'step');
+ assert.equal(await page.locator('#onboarding-progress').getAttribute('value'),'1');
+ assert.match(await page.locator('#onboarding-progress-label').textContent(),/整体安装完成/);
  assert.equal(await page.evaluate(()=>window.calls.filter(x=>x==='environment').length),2);
  assert.equal(await page.evaluate(()=>window.calls.filter(x=>x==='models').length),1);assert.ok((await page.evaluate(()=>window.calls)).includes('runtime'));
  await page.locator('#onboarding-start').click();await page.waitForFunction(()=>document.querySelector('#onboarding-message').textContent.includes('准备完成'));
@@ -38,10 +41,25 @@ try{
  await page.locator('#onboarding-close').click();assert.equal(await page.locator('#onboarding').isVisible(),false);
  // Simulate model cleanup, then cancellation and reentry while download is pending.
  await page.evaluate(()=>{window.setup.ocrModels=false;window.hold=true;window.calls=[]});await page.locator('#onboarding-open').click();await page.locator('#onboarding-start').click();
- await page.waitForFunction(()=>!!window.release);await page.locator('#onboarding-close').click();await page.locator('#onboarding-open').click();assert.equal(await page.locator('#onboarding-start').isDisabled(),true);
+ await page.waitForFunction(()=>!!window.release);
+ assert.equal(await page.locator('#setup-step-2').getAttribute('aria-current'),'step');
+ await page.evaluate(()=>window.events['engine-progress']({message:'下载 test.gguf · 50 / 100 MB',percent:.5}));
+ assert.match(await page.locator('#onboarding-task').textContent(),/test.gguf/);
+ assert.equal(await page.locator('#onboarding-progress').getAttribute('value'),'0.5');
+ await page.evaluate(()=>window.events['engine-progress']({message:'下载 test.gguf · 100 / 100 MB',percent:1}));
+ assert.equal(await page.locator('#onboarding-progress').getAttribute('value'),null);
+ assert.match(await page.locator('#onboarding-progress-label').textContent(),/安装尚未结束/);
+ await page.evaluate(()=>window.events['engine-progress']({message:'正在校验 test.gguf',percent:0}));
+ assert.equal(await page.locator('#onboarding-progress').getAttribute('value'),null);
+ assert.match(await page.locator('#onboarding-task').textContent(),/正在校验/);
+ await page.evaluate(()=>window.events['engine-progress']({message:'下载 next.gguf · 10 / 100 MB',percent:.1}));
+ assert.equal(await page.locator('#onboarding-progress').getAttribute('value'),'0.1');
+ assert.equal(await page.locator('#setup-step-2').getAttribute('aria-current'),'step');
+ await page.locator('#onboarding-close').click();await page.locator('#onboarding-open').click();assert.equal(await page.locator('#onboarding-start').isDisabled(),true);
  await page.locator('#onboarding-cancel').click();await page.waitForFunction(()=>document.querySelector('#onboarding-message').textContent.startsWith('已取消。'));
  assert.equal(await page.evaluate(()=>window.setup.ocrModels),false);assert.deepEqual(await page.evaluate(()=>window.calls),['stopOCR','models','cancel','stopOCR','stopJev']);
  assert.equal(await page.locator('#onboarding-start').isEnabled(),true);
+ assert.equal(await page.locator('#onboarding-progress').isVisible(),false);
  // Main task cancellation must also cancel a wizard running in the background.
  await page.evaluate(()=>{window.setup.ocrModels=true;window.hold=false;window.loading=true;window.calls=[]});
  await page.locator('#onboarding-start').click();await page.waitForFunction(()=>window.calls.includes('startOCR'));

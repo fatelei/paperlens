@@ -4,7 +4,7 @@
 
 PaperLens is a desktop app built with Go and Wails. It uses **MiniCPM-OCR 1.0** to recognize documents and a separate **MiniCPM-OCR-Jev** model to verify the results. Import a PDF or image, compare the source with editable text, review uncertain passages, and export the result.
 
-**Current version:** 0.5.18 preview · **Build targets:** macOS Apple Silicon and Windows x64
+**Current version:** 0.5.19 preview · **Build targets:** macOS Apple Silicon and Windows x64
 
 The application interface is currently in Chinese. The screenshots below show the actual macOS app using a seven-page scanned document; they are not mockups or a guarantee of recognition accuracy.
 
@@ -133,7 +133,7 @@ PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs node tests/workflow-ui.
 
 | Version | Changes |
 | --- | --- |
-| 0.5.18 | App-managed runtime downloads; no separate Python/Node installation or PATH configuration for desktop users. |
+| 0.5.19 | App-managed runtime downloads; no separate Python/Node installation or PATH configuration for desktop users. |
 | 0.5.14 | Guided first-run model installation, dependency detection, progress, cancellation/retry, and local service/layout checks. |
 | 0.5.13 | Complete line and image evidence can clear layout-related false positives without changing text. Novel word joins require an expanded third verification window. |
 | 0.5.12 | SQL statement context, literal-safe verification formatting, and a second window for novel cross-column or cross-page words. |
