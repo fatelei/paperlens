@@ -27,10 +27,14 @@ jobs:
       - name: Install Linux test dependencies
         timeout-minutes: 15
         run: |
-          # The runner's regional EC2 mirror can be extremely slow; use Ubuntu's primary mirror.
-          sudo sed -E -i 's|http://[^ /]*ec2.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends libgtk-3-dev libwebkit2gtk-4.1-dev
+          # Explicit sources avoid slow regional mirrors in any runner-provided source file.
+          sources="$RUNNER_TEMP/paperlens-ubuntu.list"
+          for suite in noble noble-updates noble-security; do
+            echo "deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://archive.ubuntu.com/ubuntu $suite main universe"
+          done > "$sources"
+          apt_options=(-o "Dir::Etc::sourcelist=$sources" -o Dir::Etc::sourceparts=- -o Acquire::Retries=3 -o Acquire::https::Timeout=30 -o Acquire::Languages=none)
+          sudo apt-get "${apt_options[@]}" update
+          sudo apt-get "${apt_options[@]}" install -y --no-install-recommends libgtk-3-dev libwebkit2gtk-4.1-dev
       - run: go test -tags webkit2_41 -race ./...
       - run: npm test
       - run: pip install Pillow
