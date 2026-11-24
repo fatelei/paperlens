@@ -478,22 +478,34 @@ func extractTarGzip(archive, dir string) error {
 			return errors.New("引擎归档包含不支持的文件类型")
 		}
 	}
-	// Create links after all regular files so archive paths cannot write through links.
-	for _, l := range links {
-		if filepath.IsAbs(l.target) {
-			return errors.New("引擎包含绝对符号链接")
+	// Resolve links in dependency order: release archives may list a link
+	// before another link it references. Never create an unvalidated link.
+	for len(links) > 0 {
+		pending := make([]link, 0, len(links))
+		for _, l := range links {
+			if filepath.IsAbs(l.target) {
+				return errors.New("引擎包含绝对符号链接")
+			}
+			resolved, e := filepath.EvalSymlinks(filepath.Join(filepath.Dir(l.path), l.target))
+			if os.IsNotExist(e) {
+				pending = append(pending, l)
+				continue
+			}
+			if e != nil {
+				return e
+			}
+			rel, e := filepath.Rel(dir, resolved)
+			if e != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return errors.New("引擎链接超出安装目录")
+			}
+			if e = os.Symlink(l.target, l.path); e != nil {
+				return e
+			}
 		}
-		resolved, e := filepath.EvalSymlinks(filepath.Join(filepath.Dir(l.path), l.target))
-		if e != nil {
-			return e
+		if len(pending) == len(links) {
+			return fmt.Errorf("引擎归档包含缺失或循环链接：%s -> %s", pending[0].path, pending[0].target)
 		}
-		rel, e := filepath.Rel(dir, resolved)
-		if e != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return errors.New("引擎链接超出安装目录")
-		}
-		if e = os.Symlink(l.target, l.path); e != nil {
-			return e
-		}
+		links = pending
 	}
 	return nil
 }
