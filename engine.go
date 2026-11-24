@@ -408,6 +408,17 @@ func extractZip(archive, dir string) error {
 }
 
 func extractTarGzip(archive, dir string) error {
+	// Compare resolved link targets with the same canonical root. macOS /var
+	// and /tmp (and user-selected parent directories) may themselves be links.
+	var err error
+	dir, err = filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	dir, err = filepath.EvalSymlinks(dir)
+	if err != nil {
+		return err
+	}
 	f, err := os.Open(archive)
 	if err != nil {
 		return err

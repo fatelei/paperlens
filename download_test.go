@@ -88,6 +88,75 @@ func TestTarTraversalAndLinks(t *testing.T) {
 	}
 }
 
+func TestTarLinksThroughAliasedParent(t *testing.T) {
+	for _, escape := range []bool{false, true} {
+		t.Run(fmt.Sprint(escape), func(t *testing.T) {
+			root := t.TempDir()
+			actual := filepath.Join(root, "actual")
+			if err := os.Mkdir(actual, 0700); err != nil {
+				t.Fatal(err)
+			}
+			alias := filepath.Join(root, "alias")
+			if err := os.Symlink(actual, alias); err != nil {
+				t.Skipf("symlinks unavailable: %v", err)
+			}
+			dest := filepath.Join(alias, "extract")
+			if err := os.Mkdir(dest, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(actual, "outside"), []byte("keep"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			archive := filepath.Join(root, "test.tar.gz")
+			f, err := os.Create(archive)
+			if err != nil {
+				t.Fatal(err)
+			}
+			gz := gzip.NewWriter(f)
+			tw := tar.NewWriter(gz)
+			if err := tw.WriteHeader(&tar.Header{Name: "program", Mode: 0755, Size: 4}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tw.Write([]byte("test")); err != nil {
+				t.Fatal(err)
+			}
+			linkTarget := "program"
+			if escape {
+				linkTarget = "../outside"
+			}
+			if err := tw.WriteHeader(&tar.Header{Name: "shortcut", Typeflag: tar.TypeSymlink, Linkname: linkTarget}); err != nil {
+				t.Fatal(err)
+			}
+			if err := tw.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := gz.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.Close(); err != nil {
+				t.Fatal(err)
+			}
+			err = extractTarGzip(archive, dest)
+			if escape {
+				if err == nil {
+					t.Fatal("escaping link accepted")
+				}
+				if _, err := os.Lstat(filepath.Join(dest, "shortcut")); !os.IsNotExist(err) {
+					t.Fatal("escaping link published")
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				data, err := os.ReadFile(filepath.Join(dest, "shortcut"))
+				if err != nil || string(data) != "test" {
+					t.Fatalf("valid link broken: %q %v", data, err)
+				}
+			}
+		})
+	}
+}
+
 func TestDownloadRecoversCompletedOrCorruptPartial(t *testing.T) {
 	for _, corrupt := range []bool{false, true} {
 		t.Run(fmt.Sprint(corrupt), func(t *testing.T) {
